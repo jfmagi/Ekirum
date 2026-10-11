@@ -43,3 +43,7 @@ Thumbs.db
 # Agent & audit artifacts
 .impeccable/
 .gemini/
+
+# Root-level copies of build output (generated into dist/ only)
+/assets/
+/404.html
