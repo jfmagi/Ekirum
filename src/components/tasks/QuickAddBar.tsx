@@ -106,8 +106,10 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
   const nextWeekStr = formatDateStr(nextWeekDate);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (!inline) {
+      inputRef.current?.focus();
+    }
+  }, [inline]);
 
   // Sync selectedProject whenever defaultProjectId or selectedProjectId changes
   useEffect(() => {

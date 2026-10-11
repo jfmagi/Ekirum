@@ -56,7 +56,14 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onOpenDetail }) => {
           type="button"
           role="checkbox"
           aria-checked={task.completed}
-          onClick={() => toggleTaskComplete(task.id)}
+          onMouseDown={(e) => {
+            // Prevent active input blur layout shifts from canceling the click
+            e.preventDefault();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleTaskComplete(task.id);
+          }}
           className={`mt-0.5 relative w-5 h-5 rounded-full border transition-all flex items-center justify-center flex-shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-crimson focus-visible:outline-none before:absolute before:-inset-3 before:content-[''] ${
             task.completed
               ? 'bg-crimson border-crimson text-white'

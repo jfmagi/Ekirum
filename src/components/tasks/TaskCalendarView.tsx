@@ -607,6 +607,11 @@ export const TaskCalendarView: React.FC = () => {
                       >
                         {/* Tactile Completion Circle */}
                         <button
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleTaskComplete(task.id);
