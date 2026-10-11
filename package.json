@@ -1,0 +1,39 @@
+{
+  "name": "ekirum",
+  "version": "1.0.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build && rm -rf assets && cp -r dist/assets . && cp dist/index.html .",
+    "preview": "vite preview",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist --dotfiles",
+    "test": "tsx scripts/test-task-addition.ts && tsx scripts/test-calendar.ts && tsx scripts/test-daily-xp-cap.ts && tsx scripts/test-character.ts && tsx scripts/test-library.ts && tsx scripts/test-habits.ts && tsx scripts/test-sync.ts && tsx scripts/test-init-and-views.ts && tsx scripts/test-timezone-dates.ts"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "dexie": "^4.4.6",
+    "framer-motion": "^13.4.4",
+    "lucide-react": "^1.48.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwind-merge": "^3.7.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.6.1",
+    "fake-indexeddb": "^6.2.5",
+    "gh-pages": "^6.3.0",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}

@@ -1,0 +1,120 @@
+@import url('https://fonts.googleapis.com/css2?family=Albert+Sans:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-gallery-50: #FDFCFB;
+  --color-gallery-100: #FBFBF9;
+  --color-gallery-150: #F6F5F2;
+  --color-gallery-200: #F1EFEA;
+  --color-gallery-300: #E6E3DA;
+  --color-gallery-400: #D1CCC0;
+  --color-gallery-500: #9E988A;
+  --color-gallery-800: #2A2825;
+  --color-gallery-900: #1A1918;
+
+  --color-crimson: #8B1528;
+  --color-crimson-hover: #9E1B30;
+  --color-crimson-light: #FBF0F2;
+
+  --color-gold: #B8860B;
+  --color-gold-light: #D4AF37;
+  --color-gold-subtle: #FAF6EB;
+
+  --color-charcoal: #1C1917;
+  --color-charcoal-muted: #57534E;
+  --color-charcoal-faint: #A8A29E;
+
+  --font-serif: "Cormorant Garamond", "Playfair Display", Georgia, serif;
+  --font-sans: "Albert Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-albert: "Albert Sans", -apple-system, sans-serif;
+}
+
+.font-albert {
+  font-family: var(--font-albert) !important;
+}
+
+@layer base {
+  * {
+    border-color: #E6E3DA;
+  }
+
+  body {
+    background-color: #FBFBF9;
+    color: #1C1917;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background-color: rgba(139, 21, 40, 0.15);
+    color: #1C1917;
+  }
+
+  ::placeholder {
+    color: #78716C;
+    opacity: 0.9;
+  }
+
+  :focus-visible {
+    outline: 2px solid #57534E;
+    outline-offset: 2px;
+  }
+
+  html, body {
+    -webkit-text-size-adjust: 100%;
+  }
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  /* Preserve minimal instant feedback for state changes */
+  * {
+    transition-duration: 0.05s !important;
+  }
+}
+
+/* Custom subtle macOS scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+/* Vibrancy utility */
+.mac-vibrancy {
+  background: rgba(251, 251, 249, 0.85);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+.mac-vibrancy-card {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
