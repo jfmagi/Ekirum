@@ -8,8 +8,6 @@
     "dev": "vite",
     "build": "tsc && vite build && cp dist/index.html dist/404.html",
     "preview": "vite preview",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist --dotfiles",
     "test": "tsx scripts/test-task-addition.ts && tsx scripts/test-calendar.ts && tsx scripts/test-daily-xp-cap.ts && tsx scripts/test-character.ts && tsx scripts/test-library.ts && tsx scripts/test-habits.ts && tsx scripts/test-sync.ts && tsx scripts/test-init-and-views.ts && tsx scripts/test-timezone-dates.ts"
   },
   "dependencies": {
@@ -29,7 +27,6 @@
     "@vitejs/plugin-react": "^6.1.1",
     "autoprefixer": "^10.6.1",
     "fake-indexeddb": "^6.2.5",
-    "gh-pages": "^6.3.0",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.23.15",
