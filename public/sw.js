@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ekirum-cache-v2';
+const CACHE_NAME = 'ekirum-cache-v3';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -43,7 +43,11 @@ self.addEventListener('fetch', (event) => {
 
         // If navigation request fails, fallback to index.html if cached
         if (event.request.mode === 'navigate') {
-          return caches.match('/index.html') || caches.match('/');
+          const fallback =
+            (await caches.match('/index.html')) ||
+            (await caches.match('/')) ||
+            (await caches.match(self.registration.scope));
+          if (fallback) return fallback;
         }
         return Promise.reject('Offline and asset not cached');
       })
