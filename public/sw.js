@@ -1,6 +1,25 @@
-const CACHE_NAME = 'ekirum-cache-v3';
+const CACHE_NAME = 'ekirum-cache-v4';
+
+const PRECACHE_ASSETS = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/fonts/albert-sans-latin.woff2',
+  '/fonts/albert-sans-latin-ext.woff2',
+  '/fonts/albert-sans-italic-latin.woff2',
+  '/fonts/albert-sans-italic-latin-ext.woff2',
+  '/fonts/cormorant-garamond-latin.woff2',
+  '/fonts/cormorant-garamond-latin-ext.woff2',
+  '/fonts/cormorant-garamond-italic-latin.woff2',
+  '/fonts/cormorant-garamond-italic-latin-ext.woff2',
+];
 
 self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_ASSETS)).catch((err) => {
+      console.warn('SW precache skipped:', err);
+    })
+  );
   self.skipWaiting();
 });
 
