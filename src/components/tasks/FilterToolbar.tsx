@@ -6,10 +6,13 @@ import { Filter, X, LayoutList, Clock } from 'lucide-react';
 export const FilterToolbar: React.FC = () => {
   const {
     tasks,
+    projects,
     selectedPriorityFilter,
     setPriorityFilter,
     selectedLabelFilter,
     setLabelFilter,
+    selectedProjectFilter,
+    setProjectFilter,
     displayMode,
     setDisplayMode,
     currentView,
@@ -31,11 +34,14 @@ export const FilterToolbar: React.FC = () => {
   }, [tasks]);
 
   const hasActiveFilter =
-    selectedPriorityFilter !== 'all' || selectedLabelFilter !== 'all';
+    selectedPriorityFilter !== 'all' ||
+    selectedLabelFilter !== 'all' ||
+    selectedProjectFilter !== 'all';
 
   const clearFilters = () => {
     setPriorityFilter('all');
     setLabelFilter('all');
+    setProjectFilter('all');
   };
 
   const priorityDescriptions: Record<Priority, string> = {
@@ -134,6 +140,26 @@ export const FilterToolbar: React.FC = () => {
                 </button>
               ))}
             </div>
+
+            {/* Project Filter */}
+            {currentView !== 'project' && (
+              <select
+                value={selectedProjectFilter}
+                onChange={(e) => setProjectFilter(e.target.value)}
+                className="text-base sm:text-[11px] min-h-[34px] sm:min-h-[28px] bg-white border border-stone-200/80 rounded-mac px-2 py-0.5 text-stone-700 focus:outline-none focus:border-stone-400 cursor-pointer shadow-2xs font-sans"
+                aria-label="Filter by project"
+              >
+                <option value="all">All Projects</option>
+                <option value="inbox">Inbox</option>
+                {projects
+                  .filter((p) => !p.isDeleted)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            )}
 
             {/* Label Filter */}
             {allLabels.length > 0 && (

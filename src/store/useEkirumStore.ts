@@ -196,6 +196,7 @@ export interface EkirumStore {
   searchQuery: string;
   selectedPriorityFilter: Priority | 'all';
   selectedLabelFilter: string | 'all';
+  selectedProjectFilter: string | 'all';
 
   // Modals & Panels
   quickAddOpen: boolean;
@@ -224,6 +225,7 @@ export interface EkirumStore {
   setSearchQuery: (query: string) => void;
   setPriorityFilter: (priority: Priority | 'all') => void;
   setLabelFilter: (label: string | 'all') => void;
+  setProjectFilter: (projectId: string | 'all') => void;
   setQuickAddOpen: (open: boolean, defaultDueDate?: string | null) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   openTaskDetail: (taskId: string | null) => void;
@@ -403,6 +405,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         searchQuery: '',
         selectedPriorityFilter: 'all',
         selectedLabelFilter: 'all',
+        selectedProjectFilter: 'all',
 
         quickAddOpen: false,
         quickAddDefaultDate: null,
@@ -430,6 +433,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         set({
           currentView: view,
           selectedProjectId: projectId,
+          selectedProjectFilter: 'all',
           displayMode: newDisplayMode,
           mobileSidebarOpen: false,
         });
@@ -439,6 +443,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       setSearchQuery: (query) => set({ searchQuery: query }),
       setPriorityFilter: (priority) => set({ selectedPriorityFilter: priority }),
       setLabelFilter: (label) => set({ selectedLabelFilter: label }),
+      setProjectFilter: (projectId) => set({ selectedProjectFilter: projectId }),
       setQuickAddOpen: (open, defaultDueDate = null) => {
         set({ quickAddOpen: open, quickAddDefaultDate: open ? (defaultDueDate || null) : null });
       },
@@ -2030,6 +2035,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             user: { ...INITIAL_USER, achievements: [...INITIAL_USER.achievements] },
             currentView: 'today',
             selectedProjectId: null,
+            selectedPriorityFilter: 'all',
+            selectedLabelFilter: 'all',
+            selectedProjectFilter: 'all',
             taskDetailId: null,
             editingProjectId: null,
             editingHabitId: null,
@@ -2074,6 +2082,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           user: clonedUser,
           currentView: 'today',
           selectedProjectId: null,
+          selectedPriorityFilter: 'all',
+          selectedLabelFilter: 'all',
+          selectedProjectFilter: 'all',
         });
       },
       };

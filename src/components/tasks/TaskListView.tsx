@@ -14,6 +14,8 @@ export const TaskListView: React.FC = () => {
     selectedProjectId,
     selectedPriorityFilter,
     selectedLabelFilter,
+    selectedProjectFilter,
+    setProjectFilter,
     searchQuery,
     setEditingProjectId,
   } = useEkirumStore();
@@ -23,6 +25,51 @@ export const TaskListView: React.FC = () => {
   const totalCompletedCount = useMemo(() => {
     return tasks.filter((t) => !t.isDeleted && t.completed).length;
   }, [tasks]);
+
+  // Count completed tasks per project for quick filter pills
+  const completedProjectStats = useMemo(() => {
+    if (currentView !== 'completed') return [];
+    const allCompleted = tasks.filter((t) => !t.isDeleted && t.completed);
+    const counts = new Map<string, number>();
+    let inboxCount = 0;
+
+    for (const t of allCompleted) {
+      if (!t.projectId || t.projectId === 'inbox') {
+        inboxCount++;
+      } else {
+        counts.set(t.projectId, (counts.get(t.projectId) || 0) + 1);
+      }
+    }
+
+    const stats: { id: string; name: string; color?: string; count: number }[] = [];
+    if (inboxCount > 0) {
+      stats.push({ id: 'inbox', name: 'Inbox', color: '#78716c', count: inboxCount });
+    }
+
+    for (const p of projects) {
+      if (!p.isDeleted) {
+        const count = counts.get(p.id) || 0;
+        if (count > 0) {
+          stats.push({ id: p.id, name: p.name, color: p.color, count });
+          counts.delete(p.id);
+        }
+      }
+    }
+
+    // Any tasks from deleted or unlisted projects
+    for (const [pId, count] of counts.entries()) {
+      stats.push({ id: pId, name: 'Other', count });
+    }
+
+    return stats;
+  }, [currentView, tasks, projects]);
+
+  const filterProjectName = useMemo(() => {
+    if (selectedProjectFilter === 'all') return null;
+    if (selectedProjectFilter === 'inbox') return 'Inbox';
+    const found = projects.find((p) => p.id === selectedProjectFilter);
+    return found ? found.name : 'Selected Project';
+  }, [selectedProjectFilter, projects]);
 
   // 1. Filter by current view
   let filtered = tasks.filter((task) => {
@@ -50,6 +97,12 @@ export const TaskListView: React.FC = () => {
       case 'inbox':
         return !task.completed && (!task.projectId || task.projectId === 'inbox');
       case 'today':
+        if (selectedProjectFilter !== 'all') {
+          const matchProj = selectedProjectFilter === 'inbox'
+            ? (!task.projectId || task.projectId === 'inbox')
+            : task.projectId === selectedProjectFilter;
+          if (!matchProj) return false;
+        }
         return (
           !task.completed &&
           (task.dueDate === todayStr ||
@@ -57,8 +110,20 @@ export const TaskListView: React.FC = () => {
             (!task.dueDate && task.recurrence && task.recurrence !== 'none'))
         );
       case 'upcoming':
+        if (selectedProjectFilter !== 'all') {
+          const matchProj = selectedProjectFilter === 'inbox'
+            ? (!task.projectId || task.projectId === 'inbox')
+            : task.projectId === selectedProjectFilter;
+          if (!matchProj) return false;
+        }
         return !task.completed && (!task.dueDate || task.dueDate >= todayStr);
       case 'completed':
+        if (selectedProjectFilter !== 'all') {
+          if (selectedProjectFilter === 'inbox') {
+            return task.completed && (!task.projectId || task.projectId === 'inbox');
+          }
+          return task.completed && task.projectId === selectedProjectFilter;
+        }
         return task.completed;
       case 'project':
         return !task.completed && task.projectId === selectedProjectId;
@@ -145,6 +210,64 @@ export const TaskListView: React.FC = () => {
         />
       )}
 
+      {/* Completed view quick project filter pills */}
+      {currentView === 'completed' && completedProjectStats.length > 0 && (
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-3 scrollbar-none" role="toolbar" aria-label="Filter completed tasks by project">
+          <button
+            onClick={() => setProjectFilter('all')}
+            className={`min-h-[30px] px-2.5 py-1 text-xs rounded-full border transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              selectedProjectFilter === 'all'
+                ? 'bg-stone-800 text-white border-stone-800 font-medium shadow-2xs'
+                : 'bg-white text-stone-600 border-stone-200/80 hover:bg-stone-100 hover:text-charcoal'
+            }`}
+            aria-pressed={selectedProjectFilter === 'all'}
+          >
+            <span>All</span>
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                selectedProjectFilter === 'all'
+                  ? 'bg-stone-700 text-stone-200'
+                  : 'bg-stone-100 text-stone-500'
+              }`}
+            >
+              {totalCompletedCount}
+            </span>
+          </button>
+          {completedProjectStats.map((stat) => {
+            const isActive = selectedProjectFilter === stat.id;
+            return (
+              <button
+                key={stat.id}
+                onClick={() => setProjectFilter(isActive ? 'all' : stat.id)}
+                className={`min-h-[30px] px-2.5 py-1 text-xs rounded-full border transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  isActive
+                    ? 'bg-stone-800 text-white border-stone-800 font-medium shadow-2xs'
+                    : 'bg-white text-stone-600 border-stone-200/80 hover:bg-stone-100 hover:text-charcoal'
+                }`}
+                aria-pressed={isActive}
+              >
+                {stat.color && (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: stat.color }}
+                  />
+                )}
+                <span>{stat.name}</span>
+                <span
+                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                    isActive
+                      ? 'bg-stone-700 text-stone-200'
+                      : 'bg-stone-100 text-stone-500'
+                  }`}
+                >
+                  {stat.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Filter toolbar */}
       <FilterToolbar />
 
@@ -187,14 +310,26 @@ export const TaskListView: React.FC = () => {
           </div>
           <h3 className="font-serif text-lg text-charcoal font-medium">
             {currentView === 'completed'
-              ? 'No completed tasks yet'
+              ? (selectedProjectFilter !== 'all'
+                  ? `No completed tasks in ${filterProjectName || 'this project'}`
+                  : 'No completed tasks yet')
               : 'Clear space for defused thought'}
           </h3>
           <p className="text-xs text-stone-500 mt-1 max-w-sm font-sans leading-relaxed">
             {currentView === 'completed'
-              ? 'Complete tasks from your projects or today view to archive them here and earn skill XP.'
+              ? (selectedProjectFilter !== 'all'
+                  ? 'There are no completed tasks recorded for this project.'
+                  : 'Complete tasks from your projects or today view to archive them here and earn skill XP.')
               : 'All pending items have been handled.'}
           </p>
+          {currentView === 'completed' && selectedProjectFilter !== 'all' && (
+            <button
+              onClick={() => setProjectFilter('all')}
+              className="mt-4 px-3 py-1.5 min-h-[34px] sm:min-h-[30px] text-xs font-mono text-stone-600 hover:text-charcoal bg-stone-100 hover:bg-stone-200/70 border border-stone-200/80 rounded-mac transition-all cursor-pointer"
+            >
+              Show all completed tasks ({totalCompletedCount})
+            </button>
+          )}
         </div>
       ) : null}
     </div>

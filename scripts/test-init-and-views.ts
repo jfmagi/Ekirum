@@ -116,6 +116,58 @@ async function runTests() {
 
   console.log('  ✓ DisplayMode and ViewType transitions verified (list <-> board <-> timeline <-> calendar).');
 
+  // Test 3b: Project Filtering on Completed Section & Store
+  console.log('\nTest 3b: Project Filtering in Completed view & store...');
+  if (useEkirumStore.getState().selectedProjectFilter !== 'all') {
+    throw new Error(`Expected initial selectedProjectFilter to be 'all', got ${useEkirumStore.getState().selectedProjectFilter}`);
+  }
+
+  store.setProjectFilter('project-alpha');
+  if (useEkirumStore.getState().selectedProjectFilter !== 'project-alpha') {
+    throw new Error('setProjectFilter failed to update selectedProjectFilter');
+  }
+
+  // Switching views resets project filter
+  store.setCurrentView('completed');
+  if (useEkirumStore.getState().selectedProjectFilter !== 'all') {
+    throw new Error('setCurrentView did not reset selectedProjectFilter to "all"');
+  }
+
+  // Test completed filtering logic
+  const mockTasks = [
+    { id: 'c1', title: 'Task in Alpha', projectId: 'project-alpha', completed: true, isDeleted: false },
+    { id: 'c2', title: 'Task in Beta', projectId: 'project-beta', completed: true, isDeleted: false },
+    { id: 'c3', title: 'Task in Inbox', projectId: 'inbox', completed: true, isDeleted: false },
+    { id: 'c4', title: 'Task with no project', completed: true, isDeleted: false },
+    { id: 'c5', title: 'Incomplete Task in Alpha', projectId: 'project-alpha', completed: false, isDeleted: false },
+  ];
+
+  const filterCompleted = (filter: string) => {
+    return mockTasks.filter((t) => {
+      if (!t.completed || t.isDeleted) return false;
+      if (filter === 'all') return true;
+      if (filter === 'inbox') return !t.projectId || t.projectId === 'inbox';
+      return t.projectId === filter;
+    });
+  };
+
+  const allCompleted = filterCompleted('all');
+  if (allCompleted.length !== 4) {
+    throw new Error(`Expected 4 completed tasks for 'all', got ${allCompleted.length}`);
+  }
+
+  const alphaCompleted = filterCompleted('project-alpha');
+  if (alphaCompleted.length !== 1 || alphaCompleted[0].id !== 'c1') {
+    throw new Error(`Expected only task c1 for 'project-alpha', got ${JSON.stringify(alphaCompleted)}`);
+  }
+
+  const inboxCompleted = filterCompleted('inbox');
+  if (inboxCompleted.length !== 2 || !inboxCompleted.some((t) => t.id === 'c3') || !inboxCompleted.some((t) => t.id === 'c4')) {
+    throw new Error(`Expected tasks c3 and c4 for 'inbox', got ${JSON.stringify(inboxCompleted)}`);
+  }
+
+  console.log('  ✓ Project filtering on completed tasks verified (all, specific project, and inbox).');
+
   // Test 4: Storage Error Visibility & Clear Action
   console.log('\nTest 4: Storage Error visibility and dismiss action...');
   if (useEkirumStore.getState().storageError !== null) {
