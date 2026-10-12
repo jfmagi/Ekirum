@@ -92,7 +92,7 @@ export const TaskDetailModal: React.FC = () => {
                 deleteTask(task.id);
                 openTaskDetail(null);
               }}
-              className="min-w-[40px] min-h-[40px] flex items-center justify-center p-2 text-stone-500 hover:text-red-700 hover:bg-stone-100 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none cursor-pointer"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 text-stone-500 hover:text-red-700 hover:bg-stone-100 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none cursor-pointer"
               title="Delete task"
               aria-label="Delete task"
             >
@@ -100,7 +100,7 @@ export const TaskDetailModal: React.FC = () => {
             </button>
             <button
               onClick={() => openTaskDetail(null)}
-              className="min-w-[40px] min-h-[40px] flex items-center justify-center p-2 text-stone-500 hover:text-stone-800 hover:bg-stone-200/60 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 text-stone-500 hover:text-stone-800 hover:bg-stone-200/60 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
               title="Close (Esc)"
               aria-label="Close dialog"
             >
@@ -264,10 +264,10 @@ export const TaskDetailModal: React.FC = () => {
                   </label>
                   <button
                     onClick={() => deleteSubtask(task.id, sub.id)}
-                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 min-w-[36px] min-h-[36px] flex items-center justify-center p-1.5 text-stone-500 hover:text-crimson transition-opacity focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-stone-400 rounded cursor-pointer relative before:absolute before:-inset-1"
+                    className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] flex items-center justify-center p-2 sm:p-1.5 text-stone-500 hover:text-crimson transition-opacity focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-stone-400 rounded cursor-pointer relative before:absolute before:-inset-1"
                     aria-label={`Delete subtask ${sub.title}`}
                   >
-                    <Trash2 size={13} />
+                    <Trash2 size={14} />
                   </button>
                 </div>
               ))}

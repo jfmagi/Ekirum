@@ -257,7 +257,7 @@ const FinishForm: React.FC<{
 };
 
 const iconButton =
-  'min-w-[36px] min-h-[36px] flex items-center justify-center text-stone-500 hover:text-charcoal hover:bg-stone-100 rounded-mac transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none';
+  'min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] flex items-center justify-center text-stone-500 hover:text-charcoal hover:bg-stone-100 rounded-mac transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none';
 
 export const LibraryView: React.FC = () => {
   const {
@@ -341,7 +341,7 @@ export const LibraryView: React.FC = () => {
   );
 
   return (
-    <div className="max-w-4xl mx-auto w-full px-3.5 sm:px-6 py-4 sm:py-8 select-none space-y-5 sm:space-y-6">
+    <div className="max-w-4xl mx-auto w-full px-3.5 sm:px-6 py-4 sm:py-8 space-y-5 sm:space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-stone-200/80">
         <div>

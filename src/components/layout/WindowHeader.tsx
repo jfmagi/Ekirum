@@ -38,7 +38,7 @@ export const WindowHeader: React.FC = () => {
           return (
             <button
               onClick={() => setCurrentView('character')}
-              className="flex items-center gap-2 px-2 py-1.5 min-h-[38px] sm:min-h-[34px] rounded-mac text-stone-700 hover:text-charcoal hover:bg-stone-200/50 transition-colors text-left group focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer flex-shrink-0"
+              className="flex items-center gap-2 px-2 py-1.5 min-h-[44px] sm:min-h-[34px] rounded-mac text-stone-700 hover:text-charcoal hover:bg-stone-200/50 transition-colors text-left group focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer flex-shrink-0"
               title="Character Profile (Shortcut: 5)"
               aria-label={`Character Profile: ${userRank} ${user.name} (Shortcut: 5)`}
             >
@@ -84,7 +84,7 @@ export const WindowHeader: React.FC = () => {
       <div className="flex items-center gap-2">
         <button
           onClick={() => setCommandPaletteOpen(true)}
-          className="min-h-[38px] sm:min-h-[34px] flex items-center gap-2 px-2.5 py-1.5 text-xs text-stone-700 bg-white/90 border border-stone-200 hover:border-stone-300 rounded-mac shadow-xs transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer active:scale-95"
+          className="min-h-[44px] min-w-[44px] sm:min-h-[34px] sm:min-w-auto flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-2.5 py-1.5 text-xs text-stone-700 bg-white/90 border border-stone-200 hover:border-stone-300 rounded-mac shadow-xs transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer active:scale-95"
           title="Search & Commands (Cmd+K)"
           aria-label="Search tasks and command palette (Shortcut: Cmd+K)"
         >

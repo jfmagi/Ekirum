@@ -578,7 +578,7 @@ export const TaskCalendarView: React.FC = () => {
                         setSelectedDate(dateStr);
                         setQuickAddOpen(true, dateStr);
                       }}
-                      className="opacity-70 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-stone-400 hover:text-charcoal hover:bg-stone-200/70 rounded transition-all cursor-pointer focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-stone-400 focus-visible:outline-none"
+                      className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 min-w-[28px] min-h-[28px] sm:min-w-0 sm:min-h-0 flex items-center justify-center p-1 text-stone-400 hover:text-charcoal hover:bg-stone-200/70 rounded transition-all cursor-pointer focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-stone-400 focus-visible:outline-none"
                       title={`Add task on ${dateStr}`}
                       aria-label={`Add task on ${dateStr}`}
                     >
@@ -616,7 +616,7 @@ export const TaskCalendarView: React.FC = () => {
                             e.stopPropagation();
                             toggleTaskComplete(task.id);
                           }}
-                          className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer ${
+                          className={`relative w-3.5 h-3.5 rounded-full border flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer before:absolute before:-inset-2 before:content-[''] ${
                             task.completed
                               ? 'bg-crimson border-crimson text-white'
                               : 'border-stone-300 hover:border-crimson hover:bg-crimson-light/50'
@@ -801,7 +801,7 @@ export const TaskCalendarView: React.FC = () => {
                         {/* Quick schedule to selected date */}
                         <button
                           onClick={() => handleAssignToDate(task.id, selectedDate)}
-                          className="sm:opacity-0 sm:group-hover/backlog:opacity-100 opacity-100 p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center text-stone-500 hover:text-crimson hover:bg-stone-100 rounded transition-all cursor-pointer flex-shrink-0"
+                          className="sm:opacity-0 sm:group-hover/backlog:opacity-100 opacity-100 p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-stone-500 hover:text-crimson hover:bg-stone-100 rounded transition-all cursor-pointer flex-shrink-0"
                           title={`Schedule to ${selectedDate}`}
                           aria-label={`Schedule to ${selectedDate}`}
                         >

@@ -120,7 +120,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="h-[100dvh] min-h-[100dvh] w-screen flex flex-col bg-[#FBFBF9] text-[#1C1917] overflow-hidden select-none font-sans">
+    <div className="h-[100dvh] min-h-[100dvh] w-screen flex flex-col bg-[#FBFBF9] text-[#1C1917] overflow-hidden font-sans">
       {/* Native macOS Window Header */}
       <WindowHeader />
 
@@ -162,7 +162,7 @@ export const App: React.FC = () => {
         <Sidebar />
 
         {/* Content canvas with generous negative space & readable text selection */}
-        <main className="flex-1 overflow-y-auto bg-[#FBFBF9] relative select-text pb-20 md:pb-0">
+        <main className="flex-1 overflow-y-auto bg-[#FBFBF9] relative select-text pb-[calc(5.25rem+env(safe-area-inset-bottom,0px))] md:pb-0">
           {renderMainContent()}
         </main>
       </div>

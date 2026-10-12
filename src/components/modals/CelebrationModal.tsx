@@ -45,10 +45,10 @@ export const CelebrationModal: React.FC = () => {
         {/* Dismiss icon */}
         <button
           onClick={dismissCelebration}
-          className="absolute top-3.5 right-3.5 text-stone-500 hover:text-stone-800 p-1.5 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
+          className="absolute top-2.5 right-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 text-stone-500 hover:text-stone-800 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
           aria-label="Close celebration notification"
         >
-          <X size={15} />
+          <X size={16} />
         </button>
 
         {/* Medal / Gilded Crest */}

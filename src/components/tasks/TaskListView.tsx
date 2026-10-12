@@ -116,7 +116,7 @@ export const TaskListView: React.FC = () => {
           {currentView === 'project' && selectedProject && (
             <button
               onClick={() => setEditingProjectId(selectedProject.id)}
-              className="p-1.5 text-stone-500 hover:text-charcoal hover:bg-stone-200/60 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
+              className="min-w-[44px] min-h-[44px] sm:min-w-[32px] sm:min-h-[32px] flex items-center justify-center p-2 text-stone-500 hover:text-charcoal hover:bg-stone-200/60 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
               title="Edit project & settings"
               aria-label={`Edit project ${selectedProject.name}`}
             >

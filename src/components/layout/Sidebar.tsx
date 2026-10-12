@@ -138,7 +138,7 @@ export const Sidebar: React.FC = () => {
                 <button
                   key={item.view}
                   onClick={() => handleSelectView(item.view)}
-                  className={`w-full flex items-center justify-between px-2.5 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-[32px] rounded-mac text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer ${
+                  className={`w-full flex items-center justify-between px-2.5 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-[32px] rounded-mac text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer ${
                     isActive
                       ? 'bg-stone-200/80 text-charcoal font-semibold shadow-2xs'
                       : 'text-stone-700 hover:bg-stone-200/50 hover:text-charcoal'
@@ -166,7 +166,7 @@ export const Sidebar: React.FC = () => {
             {/* Library Tab Link (between Completed and Character) */}
             <button
               onClick={() => handleSelectView('library')}
-              className={`w-full flex items-center justify-between px-2.5 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-[32px] rounded-mac text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer ${
+              className={`w-full flex items-center justify-between px-2.5 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-[32px] rounded-mac text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer ${
                 currentView === 'library'
                   ? 'bg-stone-200/80 text-charcoal font-semibold shadow-2xs'
                   : 'text-stone-700 hover:bg-stone-200/50 hover:text-charcoal'
@@ -190,7 +190,7 @@ export const Sidebar: React.FC = () => {
             {/* Character Tab Link */}
             <button
               onClick={() => handleSelectView('character')}
-              className={`w-full flex items-center justify-between px-2.5 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-[32px] rounded-mac text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer ${
+              className={`w-full flex items-center justify-between px-2.5 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-[32px] rounded-mac text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer ${
                 currentView === 'character'
                   ? 'bg-stone-200/80 text-charcoal font-semibold shadow-2xs'
                   : 'text-stone-700 hover:bg-stone-200/50 hover:text-charcoal'
@@ -214,7 +214,7 @@ export const Sidebar: React.FC = () => {
               </span>
               <button
                 onClick={() => setNewProjectModalOpen(true)}
-                className="min-w-[36px] min-h-[36px] flex items-center justify-center text-stone-500 hover:text-charcoal hover:bg-stone-200/60 p-1.5 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
+                className="min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] flex items-center justify-center text-stone-500 hover:text-charcoal hover:bg-stone-200/60 p-2 sm:p-1.5 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
                 title="Add New Project"
                 aria-label="Add new project"
               >
@@ -234,7 +234,7 @@ export const Sidebar: React.FC = () => {
                   >
                     <button
                       onClick={() => handleSelectView('project', project.id)}
-                      className={`flex-1 flex items-center justify-between px-2.5 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-[32px] rounded-mac text-xs transition-all text-left focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer ${
+                      className={`flex-1 flex items-center justify-between px-2.5 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-[32px] rounded-mac text-xs transition-all text-left focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer ${
                         isSelected
                           ? 'bg-stone-200/80 text-charcoal font-medium shadow-2xs'
                           : 'text-stone-700 hover:bg-stone-200/50 hover:text-charcoal'
@@ -273,7 +273,7 @@ export const Sidebar: React.FC = () => {
               setHelpModalOpen(true);
               setMobileSidebarOpen(false);
             }}
-            className="flex-1 min-h-[40px] flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:text-charcoal hover:bg-stone-200/60 rounded-mac transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none active:scale-95"
+            className="flex-1 min-h-[44px] sm:min-h-[36px] flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:text-charcoal hover:bg-stone-200/60 rounded-mac transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none active:scale-95"
             title="System Guide & Shortcuts (Shortcut: ?)"
             aria-label="Open system guide and shortcuts"
           >
@@ -286,7 +286,7 @@ export const Sidebar: React.FC = () => {
               setBackupModalOpen(true);
               setMobileSidebarOpen(false);
             }}
-            className="flex-1 min-h-[40px] flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:text-charcoal hover:bg-stone-200/60 rounded-mac transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none active:scale-95"
+            className="flex-1 min-h-[44px] sm:min-h-[36px] flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:text-charcoal hover:bg-stone-200/60 rounded-mac transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none active:scale-95"
             title="Data Safety & Backup"
             aria-label="Open data safety and backup settings"
           >

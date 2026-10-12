@@ -164,7 +164,7 @@ export const CharacterView: React.FC = () => {
   const totalActiveCount = visibleAchievements.length;
 
   return (
-    <div className="max-w-4xl mx-auto w-full px-3.5 sm:px-6 py-5 sm:py-10 select-none space-y-8 sm:space-y-12">
+    <div className="max-w-4xl mx-auto w-full px-3.5 sm:px-6 py-5 sm:py-10 space-y-8 sm:space-y-12">
       {/* 1. Header: Avatar, Name, Level & Aggregate Status */}
       <div className="relative bg-white border border-stone-200/90 rounded-card sm:rounded-sheet p-4 sm:p-8 overflow-hidden">
         {/* Subtle decorative background gradient */}
@@ -210,11 +210,11 @@ export const CharacterView: React.FC = () => {
               {user.avatar && (
                 <button
                   onClick={handleRemoveAvatar}
-                  className="absolute -bottom-1 -right-1 p-1 bg-white hover:bg-stone-100 border border-stone-200 rounded-full text-stone-500 hover:text-crimson shadow-xs transition-colors cursor-pointer"
+                  className="absolute -bottom-1 -right-1 min-w-[36px] min-h-[36px] p-2 flex items-center justify-center bg-white hover:bg-stone-100 border border-stone-200 rounded-full text-stone-500 hover:text-crimson shadow-xs transition-colors cursor-pointer"
                   title="Remove avatar"
                   aria-label="Remove avatar"
                 >
-                  <Trash2 size={11} />
+                  <Trash2 size={12} />
                 </button>
               )}
             </div>
@@ -354,7 +354,7 @@ export const CharacterView: React.FC = () => {
             <div className="inline-flex items-center bg-stone-100/90 p-0.5 rounded-mac border border-stone-200/80 text-xs">
               <button
                 onClick={() => handleSkillSort('level')}
-                className={`px-2.5 py-1 min-h-[28px] rounded-[5px] font-sans transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`px-3 sm:px-2.5 py-1.5 sm:py-1 min-h-[36px] sm:min-h-[28px] rounded-[5px] font-sans transition-all cursor-pointer flex items-center gap-1.5 ${
                   skillSort === 'level'
                     ? 'bg-white text-charcoal font-medium shadow-2xs'
                     : 'text-stone-500 hover:text-stone-800'
@@ -371,7 +371,7 @@ export const CharacterView: React.FC = () => {
               </button>
               <button
                 onClick={() => handleSkillSort('created')}
-                className={`px-2.5 py-1 min-h-[28px] rounded-[5px] font-sans transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`px-3 sm:px-2.5 py-1.5 sm:py-1 min-h-[36px] sm:min-h-[28px] rounded-[5px] font-sans transition-all cursor-pointer flex items-center gap-1.5 ${
                   skillSort === 'created'
                     ? 'bg-white text-charcoal font-medium shadow-2xs'
                     : 'text-stone-500 hover:text-stone-800'
@@ -498,7 +498,7 @@ export const CharacterView: React.FC = () => {
             <div className="inline-flex items-center bg-stone-100/90 p-0.5 rounded-mac border border-stone-200/80 text-xs overflow-x-auto max-w-full">
               <button
                 onClick={() => setAchievementFilter('all')}
-                className={`px-3 py-1.5 min-h-[32px] rounded-[5px] font-sans transition-all cursor-pointer ${
+                className={`px-3 py-1.5 min-h-[36px] sm:min-h-[32px] rounded-[5px] font-sans transition-all cursor-pointer ${
                   achievementFilter === 'all'
                     ? 'bg-white text-charcoal font-medium shadow-2xs'
                     : 'text-stone-500 hover:text-stone-800'
@@ -508,7 +508,7 @@ export const CharacterView: React.FC = () => {
               </button>
               <button
                 onClick={() => setAchievementFilter('achieved')}
-                className={`px-3 py-1.5 min-h-[32px] rounded-[5px] font-sans transition-all cursor-pointer ${
+                className={`px-3 py-1.5 min-h-[36px] sm:min-h-[32px] rounded-[5px] font-sans transition-all cursor-pointer ${
                   achievementFilter === 'achieved'
                     ? 'bg-white text-charcoal font-medium shadow-2xs'
                     : 'text-stone-500 hover:text-stone-800'
@@ -518,7 +518,7 @@ export const CharacterView: React.FC = () => {
               </button>
               <button
                 onClick={() => setAchievementFilter('in_progress')}
-                className={`px-3 py-1.5 min-h-[32px] rounded-[5px] font-sans transition-all cursor-pointer ${
+                className={`px-3 py-1.5 min-h-[36px] sm:min-h-[32px] rounded-[5px] font-sans transition-all cursor-pointer ${
                   achievementFilter === 'in_progress'
                     ? 'bg-white text-charcoal font-medium shadow-2xs'
                     : 'text-stone-500 hover:text-stone-800'

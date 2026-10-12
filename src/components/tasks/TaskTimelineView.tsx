@@ -107,17 +107,17 @@ export const TaskTimelineView: React.FC = () => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto w-full px-6 py-8 select-none">
+    <div className="max-w-3xl mx-auto w-full px-3.5 sm:px-6 py-4 sm:py-8">
       {/* View Title */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 sm:mb-6">
         <div className="flex items-center gap-2.5">
-          <h2 className="font-serif text-2xl text-charcoal font-medium tracking-tight">
+          <h2 className="font-serif text-xl sm:text-2xl text-charcoal font-medium tracking-tight">
             {getViewTitle()}
           </h2>
           {currentView === 'project' && selectedProject && (
             <button
               onClick={() => setEditingProjectId(selectedProject.id)}
-              className="p-1.5 text-stone-500 hover:text-charcoal hover:bg-stone-200/60 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
+              className="min-w-[44px] min-h-[44px] sm:min-w-[32px] sm:min-h-[32px] flex items-center justify-center p-2 text-stone-500 hover:text-charcoal hover:bg-stone-200/60 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
               title="Edit project & settings"
               aria-label={`Edit project ${selectedProject.name}`}
             >

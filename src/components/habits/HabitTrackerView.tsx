@@ -71,7 +71,7 @@ export const HabitTrackerView: React.FC = () => {
   const rangeLabel = `${firstDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${lastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
   return (
-    <div className="max-w-4xl mx-auto w-full px-3.5 sm:px-6 py-4 sm:py-8 select-none space-y-6 sm:space-y-8">
+    <div className="max-w-4xl mx-auto w-full px-3.5 sm:px-6 py-4 sm:py-8 space-y-6 sm:space-y-8">
       {/* 1. Header & Quick Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-stone-200/80">
         <div>

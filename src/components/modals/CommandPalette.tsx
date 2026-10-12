@@ -376,7 +376,7 @@ export const CommandPalette: React.FC = () => {
           />
           <button
             onClick={() => setCommandPaletteOpen(false)}
-            className="min-w-[36px] min-h-[36px] flex items-center justify-center text-stone-500 hover:text-stone-800 p-1.5 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
+            className="min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] flex items-center justify-center text-stone-500 hover:text-stone-800 p-2 sm:p-1.5 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
             aria-label="Close command palette"
           >
             <X size={15} />
@@ -395,7 +395,7 @@ export const CommandPalette: React.FC = () => {
                 onMouseMove={() => {
                   if (selectedIndex !== index) setSelectedIndex(index);
                 }}
-                className={`flex items-center justify-between px-3 py-2 rounded-mac text-xs cursor-pointer transition-colors ${
+                className={`flex items-center justify-between px-3 py-2.5 sm:py-2 min-h-[40px] sm:min-h-[34px] rounded-mac text-xs cursor-pointer transition-colors ${
                   isSelected
                     ? 'bg-stone-100 text-charcoal font-medium'
                     : 'text-stone-600 hover:bg-stone-50'

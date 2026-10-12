@@ -73,11 +73,11 @@ export const HabitCard: React.FC<HabitCardProps> = ({ habit, weekDates }) => {
             {/* Edit button */}
             <button
               onClick={() => setEditingHabitId(habit.id)}
-              className="sm:opacity-0 sm:group-hover:opacity-100 opacity-100 focus-visible:opacity-100 p-1.5 min-w-[36px] min-h-[36px] flex items-center justify-center text-stone-500 hover:text-charcoal hover:bg-stone-100 rounded-mac transition-all focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer relative before:absolute before:-inset-1"
+              className="sm:opacity-0 sm:group-hover:opacity-100 opacity-100 focus-visible:opacity-100 p-2 min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] flex items-center justify-center text-stone-500 hover:text-charcoal hover:bg-stone-100 rounded-mac transition-all focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer relative before:absolute before:-inset-1"
               title="Edit habit settings"
               aria-label={`Edit habit settings for ${habit.title}`}
             >
-              <Edit3 size={13} />
+              <Edit3 size={14} />
             </button>
           </div>
         </div>
