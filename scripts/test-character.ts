@@ -559,16 +559,22 @@ assert.strictEqual(projAch10.description, 'Complete 10 tasks or library items in
 assert.strictEqual(projAch10.xpReward, 25);
 assert.strictEqual(projAch10.projectId, 'proj-omega');
 
-const projAch50 = resProjInit.updatedAchievements.find((a) => a.id === 'ach-project-proj-omega-50');
-assert.ok(projAch50, 'Project milestone 50 must be generated');
-assert.strictEqual(projAch50.title, 'Omega Protocol: Milestone 50');
-assert.strictEqual(projAch50.xpReward, 50);
+// With lazy progressive generation, future milestone 50 must NOT be eagerly generated at 0 completions
+assert.strictEqual(
+  resProjInit.updatedAchievements.some((a) => a.id === 'ach-project-proj-omega-50'),
+  false,
+  'Future milestone 50 must NOT be eagerly generated at 0 completions'
+);
 
-const projAch1000 = resProjInit.updatedAchievements.find((a) => a.id === 'ach-project-proj-omega-1000');
-assert.ok(projAch1000, 'Project milestone 1000 must be generated');
-assert.strictEqual(projAch1000.title, 'Omega Protocol: Milestone 1000');
-assert.strictEqual(projAch1000.xpReward, 300);
-console.log('Test 7o: Project milestone ladders, tiers, boost scaling & naming: PASSED');
+// Metadata generator produces correct boost titles and scaled rewards for higher tiers
+const meta50 = getProjectMilestoneMeta('Omega Protocol', 50);
+assert.strictEqual(meta50.title, 'Omega Protocol: Milestone 50');
+assert.strictEqual(meta50.xpReward, 50);
+
+const meta1000 = getProjectMilestoneMeta('Omega Protocol', 1000);
+assert.strictEqual(meta1000.title, 'Omega Protocol: Milestone 1000');
+assert.strictEqual(meta1000.xpReward, 300);
+console.log('Test 7o: Project milestone ladders, tiers, boost scaling & progressive generation: PASSED');
 
 // 7p. Unified completions (tasks + library items) & dual XP award
 const projTasks: Task[] = Array.from({ length: 7 }, (_, i) => ({
@@ -649,8 +655,8 @@ const resRenamed = evaluateAchievements(
 );
 const renamedAch10 = resRenamed.updatedAchievements.find((a) => a.id === 'ach-project-proj-omega-10');
 assert.strictEqual(renamedAch10?.title, 'Apex Vanguard: 10 Contributions');
-const renamedAch50 = resRenamed.updatedAchievements.find((a) => a.id === 'ach-project-proj-omega-50');
-assert.strictEqual(renamedAch50?.title, 'Apex Vanguard: Milestone 50');
+const renamedAch20 = resRenamed.updatedAchievements.find((a) => a.id === 'ach-project-proj-omega-20');
+assert.strictEqual(renamedAch20?.title, 'Apex Vanguard: 20 Contributions');
 console.log('Test 7r: Project renaming dynamic title updates: PASSED');
 
 // 7s. Project deletion: preserves unlocked achievements, removes unachieved from in progress

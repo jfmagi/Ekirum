@@ -319,9 +319,14 @@ export function evaluateAchievements(
     baseMap.set(ach.id, { ...ach });
   }
 
-  // Populate project milestone achievements (every 10 completions up to 1000) for active projects
+  // Populate project milestone achievements lazily for active projects.
+  // Instead of generating all 100 tiers (10..1000) eagerly, generate only completed milestones
+  // plus the single next in-progress milestone target (10, 20, 30...).
   for (const p of activeProjects) {
-    for (let target = 10; target <= 1000; target += 10) {
+    const count = projectCompletionsMap.get(p.id) || 0;
+    const maxMilestoneTarget = Math.min(1000, Math.max(10, Math.ceil((count + 1) / 10) * 10));
+
+    for (let target = 10; target <= maxMilestoneTarget; target += 10) {
       const achId = `ach-project-${p.id}-${target}`;
       const meta = getProjectMilestoneMeta(p.name, target, p.icon);
       baseMap.set(achId, {
@@ -343,10 +348,15 @@ export function evaluateAchievements(
 
   for (const ach of currentAchievements) {
     const projMeta = parseProjectAchievementId(ach.id);
-    // If this milestone is for a deleted project and was not unlocked yet, discard from in progress
-    if (projMeta && !activeProjectMap.has(projMeta.projectId) && !ach.unlockedAt) {
-      baseMap.delete(ach.id);
-      continue;
+    if (projMeta) {
+      const count = projectCompletionsMap.get(projMeta.projectId) || 0;
+      const maxMilestoneTarget = Math.min(1000, Math.max(10, Math.ceil((count + 1) / 10) * 10));
+
+      // Discard un-unlocked milestones for deleted projects or milestones beyond the current rolling target
+      if (!ach.unlockedAt && (!activeProjectMap.has(projMeta.projectId) || projMeta.target > maxMilestoneTarget)) {
+        baseMap.delete(ach.id);
+        continue;
+      }
     }
 
     const existing = baseMap.get(ach.id);
