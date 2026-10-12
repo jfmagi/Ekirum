@@ -1,5 +1,5 @@
 import { db, getOrCreateDeviceId } from './db';
-import { exportAll, importAndMerge, MergeResult } from './syncEngine';
+import { exportAll, importAndMerge, compactTombstones, MergeResult } from './syncEngine';
 import { BackupFolderPermission } from '../types';
 import { formatLocalDate } from './dateParser';
 
@@ -110,9 +110,9 @@ export async function getBackupStatus(): Promise<BackupStatus> {
   }
 
   const permission = await verifyHandlePermission(handle, false);
-  const hoursSinceLastBackup = lastBackupAt
-    ? (Date.now() - new Date(lastBackupAt).getTime()) / (3600 * 1000)
-    : 999;
+  const isOverdue = Boolean(
+    lastBackupAt && (Date.now() - new Date(lastBackupAt).getTime()) > 48 * 3600 * 1000
+  );
 
   return {
     hasFileSystemSupport: true,
@@ -120,7 +120,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     lastBackupAt,
     lastSyncAt,
     permission,
-    isOverdue: hoursSinceLastBackup > 48,
+    isOverdue,
     deviceId,
   };
 }
@@ -218,7 +218,10 @@ async function performBackup(
     const nowIso = new Date().toISOString();
     await db.settings.put({ key: 'lastBackupAt', value: nowIso });
 
-    // 3. Prune old daily backups (keep last 14)
+    // 3. Compact tombstones older than 60 days to keep tables bounded
+    await compactTombstones(60).catch((err) => console.warn('Tombstone compaction skipped:', err));
+
+    // 4. Prune old daily backups (keep last 14)
     await pruneOldBackups(handle);
 
     return true;
@@ -304,6 +307,7 @@ export async function syncDeviceFiles(
     const localDeviceId = await getOrCreateDeviceId();
     let totalMergedChanges = 0;
     let filesProcessed = 0;
+    let filesFailed = 0;
 
     const syncMtimesRecord = await db.settings.get('deviceSyncMtimes');
     const syncMtimes: Record<string, number> =
@@ -311,6 +315,8 @@ export async function syncDeviceFiles(
         ? { ...syncMtimesRecord.value }
         : {};
     let mtimesChanged = false;
+
+    const MAX_DEVICE_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 
     for await (const entry of (handle as any).values()) {
       if (
@@ -324,6 +330,13 @@ export async function syncDeviceFiles(
         try {
           const file = await entry.getFile();
           const prevMtime = syncMtimes[entry.name] || 0;
+
+          // Reject files exceeding max safe payload size
+          if (file.size > MAX_DEVICE_FILE_SIZE) {
+            console.warn(`Device file ${entry.name} exceeds 25 MB limit (${file.size} bytes). Skipping.`);
+            filesFailed++;
+            continue;
+          }
 
           // If the file was not modified since last successful import, skip reading and parsing
           if (file.lastModified <= prevMtime) {
@@ -339,8 +352,12 @@ export async function syncDeviceFiles(
             totalMergedChanges += mergeRes.totalChanges;
             syncMtimes[entry.name] = file.lastModified;
             mtimesChanged = true;
+          } else {
+            filesFailed++;
+            console.warn(`Error merging device sync file ${entry.name}:`, mergeRes.error);
           }
         } catch (e) {
+          filesFailed++;
           console.warn(`Error reading device sync file ${entry.name}:`, e);
         }
       }
@@ -356,7 +373,7 @@ export async function syncDeviceFiles(
     return {
       filesProcessed,
       mergeResult: {
-        success: true,
+        success: filesFailed === 0,
         stats: {},
         totalChanges: totalMergedChanges,
       },

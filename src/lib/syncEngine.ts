@@ -36,6 +36,32 @@ export interface MergeResult {
   totalChanges: number;
 }
 
+export const MAX_RECORDS_PER_TABLE = 50000;
+
+/**
+ * Garbage-collect soft-deleted tombstones older than the retention cutoff (default: 60 days).
+ * Prevents unbounded Dexie table growth while safely protecting distributed LWW sync.
+ */
+export async function compactTombstones(cutoffDays = 60): Promise<number> {
+  const cutoffTime = new Date(Date.now() - cutoffDays * 24 * 3600 * 1000).toISOString();
+  let purgedCount = 0;
+
+  await db.transaction('rw', [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.libraryItems], async () => {
+    const tables = [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.libraryItems];
+    for (const table of tables) {
+      const oldDeletedKeys = await table
+        .filter((r: any) => Boolean(r.isDeleted) && typeof r.updatedAt === 'string' && r.updatedAt < cutoffTime)
+        .primaryKeys();
+      if (oldDeletedKeys.length > 0) {
+        await table.bulkDelete(oldDeletedKeys);
+        purgedCount += oldDeletedKeys.length;
+      }
+    }
+  });
+
+  return purgedCount;
+}
+
 /**
  * Export all tables from IndexedDB into a versioned JSON backup object.
  */
@@ -367,6 +393,17 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
         stats: {},
         totalChanges: 0,
       };
+    }
+
+    for (const [tableName, records] of Object.entries(tables)) {
+      if (Array.isArray(records) && records.length > MAX_RECORDS_PER_TABLE) {
+        return {
+          success: false,
+          error: `Table "${tableName}" exceeds maximum allowed record count of ${MAX_RECORDS_PER_TABLE} (received ${records.length}).`,
+          stats: {},
+          totalChanges: 0,
+        };
+      }
     }
 
     const stats: Record<string, MergeStats> = {};

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import {
   Search,
@@ -35,21 +35,19 @@ export const CommandPalette: React.FC = () => {
 
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const selectedItemRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setCommandPaletteOpen(!commandPaletteOpen);
-      }
-      if (e.key === 'Escape' && commandPaletteOpen) {
-        setCommandPaletteOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [commandPaletteOpen, setCommandPaletteOpen]);
+    if (commandPaletteOpen) {
+      setQuery('');
+      setSelectedIndex(0);
+      const timer = setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [commandPaletteOpen]);
 
   // Items to search through
   type PaletteItem = {
@@ -275,15 +273,45 @@ export const CommandPalette: React.FC = () => {
     openTaskDetail,
   ]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  // Ensure selectedIndex is always valid for the filtered results
+  useEffect(() => {
+    if (selectedIndex >= filteredItems.length && filteredItems.length > 0) {
+      setSelectedIndex(0);
+    }
+  }, [filteredItems.length, selectedIndex]);
+
+  // Scroll active item smoothly into view
+  useEffect(() => {
+    if (commandPaletteOpen && selectedItemRef.current) {
+      selectedItemRef.current.scrollIntoView({
+        block: 'nearest',
+        inline: 'nearest',
+      });
+    }
+  }, [selectedIndex, commandPaletteOpen]);
+
+  const handleKeyDown = (e: React.KeyboardEvent | KeyboardEvent) => {
+    if (!commandPaletteOpen) return;
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex((prev) => (prev + 1) % (filteredItems.length || 1));
+      setSelectedIndex((prev) => (filteredItems.length === 0 ? 0 : (prev + 1) % filteredItems.length));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setSelectedIndex((prev) =>
-        prev === 0 ? (filteredItems.length || 1) - 1 : prev - 1
-      );
+      setSelectedIndex((prev) => (filteredItems.length === 0 ? 0 : (prev - 1 + filteredItems.length) % filteredItems.length));
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        setSelectedIndex((prev) => (filteredItems.length === 0 ? 0 : (prev - 1 + filteredItems.length) % filteredItems.length));
+      } else {
+        setSelectedIndex((prev) => (filteredItems.length === 0 ? 0 : (prev + 1) % filteredItems.length));
+      }
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setSelectedIndex(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setSelectedIndex(Math.max(0, filteredItems.length - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (filteredItems[selectedIndex]) {
@@ -291,6 +319,33 @@ export const CommandPalette: React.FC = () => {
       }
     }
   };
+
+  // Window-level hotkey listener (Cmd+K, Esc, and navigation fallback)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(!commandPaletteOpen);
+        return;
+      }
+
+      if (e.key === 'Escape' && commandPaletteOpen) {
+        e.preventDefault();
+        setCommandPaletteOpen(false);
+        return;
+      }
+
+      // If palette is open and user pressed navigation keys while focus is not in an input
+      if (commandPaletteOpen && document.activeElement !== inputRef.current) {
+        if (['ArrowDown', 'ArrowUp', 'Tab', 'Home', 'End', 'Enter'].includes(e.key)) {
+          handleKeyDown(e);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [commandPaletteOpen, setCommandPaletteOpen, selectedIndex, filteredItems]);
 
   if (!commandPaletteOpen) return null;
 
@@ -307,6 +362,7 @@ export const CommandPalette: React.FC = () => {
         <div className="flex items-center gap-3 px-4 py-3.5 border-b border-stone-200">
           <Search size={16} className="text-stone-500 flex-shrink-0" />
           <input
+            ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => {
@@ -334,17 +390,20 @@ export const CommandPalette: React.FC = () => {
             return (
               <div
                 key={item.id}
+                ref={isSelected ? selectedItemRef : undefined}
                 onClick={item.action}
-                onMouseEnter={() => setSelectedIndex(index)}
+                onMouseMove={() => {
+                  if (selectedIndex !== index) setSelectedIndex(index);
+                }}
                 className={`flex items-center justify-between px-3 py-2 rounded-mac text-xs cursor-pointer transition-colors ${
                   isSelected
-                    ? 'bg-stone-100 text-charcoal'
+                    ? 'bg-stone-100 text-charcoal font-medium'
                     : 'text-stone-600 hover:bg-stone-50'
                 }`}
               >
                 <div className="flex items-center gap-2.5 truncate">
                   {item.icon}
-                  <span className="truncate font-medium">{item.title}</span>
+                  <span className="truncate">{item.title}</span>
                 </div>
                 {item.subtitle && (
                   <span className="text-[10px] text-stone-500 font-mono flex-shrink-0 font-medium">
@@ -364,7 +423,7 @@ export const CommandPalette: React.FC = () => {
 
         {/* Footer shortcuts */}
         <div className="px-4 py-2 bg-stone-50/70 border-t border-stone-100 flex items-center justify-between text-[10px] text-stone-500 font-mono font-medium">
-          <span>Navigate with ↑ ↓ and Enter</span>
+          <span>Navigate with ↑ ↓ (or Tab) and Enter</span>
           <span>Esc to exit</span>
         </div>
       </div>

@@ -150,6 +150,16 @@ export const BackupModal: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const MAX_UPLOAD_SIZE = 25 * 1024 * 1024; // 25 MB
+    if (file.size > MAX_UPLOAD_SIZE) {
+      setImportResult({
+        success: false,
+        message: `File exceeds maximum allowed size of 25 MB (${(file.size / (1024 * 1024)).toFixed(1)} MB).`,
+      });
+      e.target.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async (event) => {
       const content = event.target?.result as string;

@@ -327,6 +327,7 @@ export interface EkirumStore {
 const inFlightTaskActions = new Set<string>();
 const inFlightHabitActions = new Set<string>();
 const inFlightLibraryActions = new Set<string>();
+let initStoragePromise: Promise<void> | null = null;
 
 /**
  * Centralized recurrence invariant:
@@ -531,38 +532,46 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         db.userProfile.put(updatedUser).catch(saveCatch('updating user profile'));
       },
 
-      initStorage: async () => {
-        try {
-          if (typeof localStorage !== 'undefined') {
-            if (localStorage.getItem('doist-mock-cleaned-v1')) {
-              localStorage.removeItem('doist-mock-cleaned-v1');
-              localStorage.setItem('ekirum-mock-cleaned-v1', 'true');
-            }
-          }
-          await initializeDatabase();
-          await get().syncWithDatabase();
-
-          // Check if first-time onboarding should be presented
-          const currentUser = get().user;
-          const currentTasks = get().tasks;
-          const isMarkedOnboarded =
-            currentUser.onboardingCompleted ||
-            (typeof localStorage !== 'undefined' && localStorage.getItem('ekirum_onboarded_v1') === 'true');
-
-          if (!isMarkedOnboarded && currentTasks.length === 0 && currentUser.totalXp === 0) {
-            set({ onboardingModalOpen: true });
-          }
-
-          await get().refreshBackupStatus();
-          // Lifecycle check: auto backup if > 24h & sync foreign devices
-          const initSync = await maybeBackupAndSync(false);
-          if (initSync.success && initSync.totalChanges > 0) {
-            await get().syncWithDatabase();
-          }
-          await get().refreshBackupStatus();
-        } catch (e) {
-          console.error('Storage initialization failed:', e);
+      initStorage: () => {
+        if (initStoragePromise) {
+          return initStoragePromise;
         }
+
+        initStoragePromise = (async () => {
+          try {
+            if (typeof localStorage !== 'undefined') {
+              if (localStorage.getItem('doist-mock-cleaned-v1')) {
+                localStorage.removeItem('doist-mock-cleaned-v1');
+                localStorage.setItem('ekirum-mock-cleaned-v1', 'true');
+              }
+            }
+            await initializeDatabase();
+            await get().syncWithDatabase();
+
+            // Check if first-time onboarding should be presented
+            const currentUser = get().user;
+            const currentTasks = get().tasks;
+            const isMarkedOnboarded =
+              currentUser.onboardingCompleted ||
+              (typeof localStorage !== 'undefined' && localStorage.getItem('ekirum_onboarded_v1') === 'true');
+
+            if (!isMarkedOnboarded && currentTasks.length === 0 && currentUser.totalXp === 0) {
+              set({ onboardingModalOpen: true });
+            }
+
+            await get().refreshBackupStatus();
+            // Lifecycle check: auto backup if > 24h & sync foreign devices
+            const initSync = await maybeBackupAndSync(false);
+            if (initSync.success && initSync.totalChanges > 0) {
+              await get().syncWithDatabase();
+            }
+            await get().refreshBackupStatus();
+          } catch (e) {
+            console.error('Storage initialization failed:', e);
+          }
+        })();
+
+        return initStoragePromise;
       },
 
       syncWithDatabase: async () => {
@@ -1844,6 +1853,14 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
 
       importBackupJson: async (jsonString: string) => {
         try {
+          const MAX_JSON_SIZE = 25 * 1024 * 1024; // 25 MB max
+          if (typeof jsonString === 'string' && jsonString.length > MAX_JSON_SIZE) {
+            return {
+              success: false,
+              error: `Payload exceeds maximum allowed size of 25 MB (size: ${(jsonString.length / (1024 * 1024)).toFixed(1)} MB).`,
+            };
+          }
+
           const parsed = JSON.parse(jsonString);
 
           // Save safety snapshot in IndexedDB settings (and localStorage as fallback)
@@ -1979,6 +1996,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             localStorage.setItem('ekirum-db-initialized-v1', 'true');
           }
 
+          initStoragePromise = null;
+
           set({
             tasks: [],
             projects: [],
@@ -1999,6 +2018,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       },
 
       resetToDefaults: async () => {
+        initStoragePromise = null;
         const clonedUser = { ...INITIAL_USER, achievements: [...INITIAL_USER.achievements] };
         await db.transaction(
           'rw',
@@ -2013,10 +2033,10 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             await db.userProfile.clear();
             await db.libraryItems.clear();
 
-            await db.projects.bulkPut(INITIAL_PROJECTS);
-            await db.skills.bulkPut(INITIAL_SKILLS);
-            await db.habits.bulkPut(INITIAL_HABITS);
-            await db.tasks.bulkPut(INITIAL_TASKS);
+            if (INITIAL_PROJECTS.length > 0) await db.projects.bulkPut(INITIAL_PROJECTS);
+            if (INITIAL_SKILLS.length > 0) await db.skills.bulkPut(INITIAL_SKILLS);
+            if (INITIAL_HABITS.length > 0) await db.habits.bulkPut(INITIAL_HABITS);
+            if (INITIAL_TASKS.length > 0) await db.tasks.bulkPut(INITIAL_TASKS);
             await db.achievements.bulkPut(INITIAL_ACHIEVEMENTS);
             await db.userProfile.put(clonedUser);
           }

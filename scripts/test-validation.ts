@@ -10,7 +10,8 @@ import {
   sanitizeLibraryItem,
 } from '../src/lib/schemaSanitizers';
 import { advanceRecurringTask, useEkirumStore } from '../src/store/useEkirumStore';
-import { syncDeviceFiles } from '../src/lib/backupService';
+import { syncDeviceFiles, getBackupStatus } from '../src/lib/backupService';
+import { compactTombstones, importAndMerge, MAX_RECORDS_PER_TABLE } from '../src/lib/syncEngine';
 import { INITIAL_USER } from '../src/lib/seedData';
 import { db } from '../src/lib/db';
 import type { Task } from '../src/types';
@@ -340,6 +341,85 @@ const projectsRefAfter = useEkirumStore.getState().projects;
 
 assert.strictEqual(habitsRefAfter, habitsRefBefore, 'Habits array identity must be preserved on no-change sync');
 assert.strictEqual(projectsRefAfter, projectsRefBefore, 'Projects array identity must be preserved on no-change sync');
-console.log('Test 11: triggerBackupAndSync preserves store array identities when totalChanges === 0: PASSED');
+// Test 12: Import size bounds and table record count limit
+const oversizedPayload = ' '.repeat(25 * 1024 * 1024 + 1);
+const oversizedResult = await useEkirumStore.getState().importBackupJson(oversizedPayload);
+assert.strictEqual(oversizedResult.success, false, 'Payload > 25MB must be rejected');
+assert.ok(oversizedResult.error?.includes('25 MB'));
+
+const limitRes = await importAndMerge({
+  schemaVersion: 1,
+  exportedAt: new Date().toISOString(),
+  tables: {
+    tasks: new Array(MAX_RECORDS_PER_TABLE + 1).fill({ id: 'dummy' }),
+  },
+});
+assert.strictEqual(limitRes.success, false, 'Exceeding MAX_RECORDS_PER_TABLE must return success: false');
+assert.ok(limitRes.error?.includes('exceeds maximum allowed record count'));
+console.log('Test 12: Import size bounds and table record count limit: PASSED');
+
+// Test 13: compactTombstones purges old tombstones and preserves recent ones
+const oldDeletedTask: Task = {
+  id: 'task-old-tombstone',
+  title: 'Old Deleted Task',
+  status: 'todo',
+  priority: 'low',
+  createdAt: '2025-01-01T00:00:00.000Z',
+  updatedAt: new Date(Date.now() - 70 * 86400000).toISOString(),
+  isDeleted: true,
+};
+const recentDeletedTask: Task = {
+  id: 'task-recent-tombstone',
+  title: 'Recent Deleted Task',
+  status: 'todo',
+  priority: 'low',
+  createdAt: '2026-10-01T00:00:00.000Z',
+  updatedAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+  isDeleted: true,
+};
+const activeTask: Task = {
+  id: 'task-active-compact-test',
+  title: 'Active Task',
+  status: 'todo',
+  priority: 'low',
+  createdAt: '2025-01-01T00:00:00.000Z',
+  updatedAt: new Date(Date.now() - 70 * 86400000).toISOString(),
+  isDeleted: false,
+};
+
+await db.tasks.bulkPut([oldDeletedTask, recentDeletedTask, activeTask]);
+const purgedCount = await compactTombstones(60);
+assert.ok(purgedCount >= 1, 'Should purge at least 1 old tombstone');
+
+const retrievedOld = await db.tasks.get('task-old-tombstone');
+const retrievedRecent = await db.tasks.get('task-recent-tombstone');
+const retrievedActive = await db.tasks.get('task-active-compact-test');
+
+assert.strictEqual(retrievedOld, undefined, 'Old tombstone must be removed from Dexie');
+assert.ok(retrievedRecent, 'Recent tombstone must be preserved for multi-device sync');
+assert.ok(retrievedActive, 'Active task must not be touched');
+console.log('Test 13: compactTombstones lifecycle GC: PASSED');
+
+// Test 14: getBackupStatus overdue calculation
+await db.settings.delete('lastBackupAt');
+const statusNoBackup = await getBackupStatus();
+assert.strictEqual(statusNoBackup.isOverdue, false, 'New directory without prior backup must not be overdue');
+
+await db.settings.put({ key: 'lastBackupAt', value: new Date(Date.now() - 50 * 3600 * 1000).toISOString() });
+const statusOldBackup = await getBackupStatus();
+assert.strictEqual(statusOldBackup.isOverdue, true, 'Backup older than 48h must be overdue');
+
+await db.settings.put({ key: 'lastBackupAt', value: new Date(Date.now() - 2 * 3600 * 1000).toISOString() });
+const statusFreshBackup = await getBackupStatus();
+assert.strictEqual(statusFreshBackup.isOverdue, false, 'Backup within 48h must not be overdue');
+console.log('Test 14: getBackupStatus overdue rule consistency: PASSED');
+
+// Test 15: initStorage promise memoization
+const initPromiseA = useEkirumStore.getState().initStorage();
+const initPromiseB = useEkirumStore.getState().initStorage();
+assert.strictEqual(initPromiseA, initPromiseB, 'Concurrent initStorage calls must share the same memoized promise');
+await Promise.all([initPromiseA, initPromiseB]);
+console.log('Test 15: initStorage re-entrancy memoization: PASSED');
 
 console.log('\n🎉 ALL VALIDATION & DATA INTEGRITY TESTS PASSED!');
+
