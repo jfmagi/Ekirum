@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { IconHelper } from '../common/IconHelper';
 import { PROJECT_COLOR_OPTIONS } from '../../lib/projectColors';
@@ -36,16 +36,22 @@ export const EditProjectModal: React.FC = () => {
     setConfirmDelete(false);
   };
 
-  // Sync local state whenever the target project changes
+  const prevEditingIdRef = useRef<string | null>(null);
+
+  // Sync local state whenever editingProjectId changes
   useEffect(() => {
-    if (project) {
-      setName(project.name);
-      setDescription(project.description || '');
-      setSelectedColor(project.color || '#8B1528');
-      setSelectedIcon(project.icon || 'Layers');
-      setConfirmDelete(false);
+    if (editingProjectId && editingProjectId !== prevEditingIdRef.current) {
+      const targetProject = projects.find((p) => p.id === editingProjectId);
+      if (targetProject) {
+        setName(targetProject.name);
+        setDescription(targetProject.description || '');
+        setSelectedColor(targetProject.color || '#8B1528');
+        setSelectedIcon(targetProject.icon || 'Layers');
+        setConfirmDelete(false);
+      }
     }
-  }, [project]);
+    prevEditingIdRef.current = editingProjectId;
+  }, [editingProjectId]);
 
   useEffect(() => {
     if (!editingProjectId || !project) return;

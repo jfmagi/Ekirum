@@ -555,7 +555,10 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
 
           await get().refreshBackupStatus();
           // Lifecycle check: auto backup if > 24h & sync foreign devices
-          await maybeBackupAndSync(false);
+          const initSync = await maybeBackupAndSync(false);
+          if (initSync.success && initSync.totalChanges > 0) {
+            await get().syncWithDatabase();
+          }
           await get().refreshBackupStatus();
         } catch (e) {
           console.error('Storage initialization failed:', e);
@@ -664,14 +667,21 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       },
 
       triggerBackupAndSync: async (force = true) => {
+        if (get().isSyncing) return false;
         set({ isSyncing: true });
-        const res = await maybeBackupAndSync(force);
-        if (res) {
-          await get().syncWithDatabase();
+        try {
+          const res = await maybeBackupAndSync(force);
+          if (res.success && res.totalChanges > 0) {
+            await get().syncWithDatabase();
+          }
+          await get().refreshBackupStatus();
+          return res.success;
+        } catch (err) {
+          console.warn('triggerBackupAndSync error:', err);
+          return false;
+        } finally {
+          set({ isSyncing: false });
         }
-        await get().refreshBackupStatus();
-        set({ isSyncing: false });
-        return res;
       },
 
       addTask: (data) => {

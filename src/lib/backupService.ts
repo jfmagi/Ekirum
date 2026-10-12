@@ -267,16 +267,50 @@ export async function pruneOldBackups(handle: FileSystemDirectoryHandle): Promis
   }
 }
 
+export const SYNC_THROTTLE_MS = 30 * 1000;
+let isBackupSyncRunning = false;
+
+export interface BackupAndSyncResult {
+  success: boolean;
+  totalChanges: number;
+}
+
 /**
  * Scan the shared backup folder for other device-<id>.json files and merge them in.
  */
 export async function syncDeviceFiles(
-  handle: FileSystemDirectoryHandle
+  handle: FileSystemDirectoryHandle,
+  force = false
 ): Promise<{ filesProcessed: number; mergeResult?: MergeResult }> {
   try {
+    const now = Date.now();
+    if (!force) {
+      const lastSyncRecord = await db.settings.get('lastSyncAt');
+      if (lastSyncRecord && typeof lastSyncRecord.value === 'string') {
+        const elapsed = now - new Date(lastSyncRecord.value).getTime();
+        if (elapsed < SYNC_THROTTLE_MS) {
+          return {
+            filesProcessed: 0,
+            mergeResult: {
+              success: true,
+              stats: {},
+              totalChanges: 0,
+            },
+          };
+        }
+      }
+    }
+
     const localDeviceId = await getOrCreateDeviceId();
     let totalMergedChanges = 0;
     let filesProcessed = 0;
+
+    const syncMtimesRecord = await db.settings.get('deviceSyncMtimes');
+    const syncMtimes: Record<string, number> =
+      syncMtimesRecord?.value && typeof syncMtimesRecord.value === 'object'
+        ? { ...syncMtimesRecord.value }
+        : {};
+    let mtimesChanged = false;
 
     for await (const entry of (handle as any).values()) {
       if (
@@ -289,6 +323,13 @@ export async function syncDeviceFiles(
       ) {
         try {
           const file = await entry.getFile();
+          const prevMtime = syncMtimes[entry.name] || 0;
+
+          // If the file was not modified since last successful import, skip reading and parsing
+          if (file.lastModified <= prevMtime) {
+            continue;
+          }
+
           const text = await file.text();
           const data = JSON.parse(text);
 
@@ -296,6 +337,8 @@ export async function syncDeviceFiles(
           if (mergeRes.success) {
             filesProcessed++;
             totalMergedChanges += mergeRes.totalChanges;
+            syncMtimes[entry.name] = file.lastModified;
+            mtimesChanged = true;
           }
         } catch (e) {
           console.warn(`Error reading device sync file ${entry.name}:`, e);
@@ -303,7 +346,11 @@ export async function syncDeviceFiles(
       }
     }
 
-    const nowIso = new Date().toISOString();
+    if (mtimesChanged) {
+      await db.settings.put({ key: 'deviceSyncMtimes', value: syncMtimes });
+    }
+
+    const nowIso = new Date(now).toISOString();
     await db.settings.put({ key: 'lastSyncAt', value: nowIso });
 
     return {
@@ -323,22 +370,35 @@ export async function syncDeviceFiles(
 /**
  * Automated lifecycle check: called on app mount and on visibilitychange.
  */
-export async function maybeBackupAndSync(force = false): Promise<boolean> {
-  if (!isFileSystemAccessSupported()) return false;
-
-  const handle = await getSavedDirectoryHandle();
-  if (!handle) return false;
-
-  const perm = await verifyHandlePermission(handle, false);
-  if (perm !== 'granted') {
-    return false;
+export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncResult> {
+  if (isBackupSyncRunning) {
+    return { success: false, totalChanges: 0 };
   }
 
-  // 1. Check if backup is needed or forced
-  await performBackup(handle, force);
+  isBackupSyncRunning = true;
+  try {
+    if (!isFileSystemAccessSupported()) return { success: false, totalChanges: 0 };
 
-  // 2. Sync with other devices in the shared folder
-  await syncDeviceFiles(handle);
+    const handle = await getSavedDirectoryHandle();
+    if (!handle) return { success: false, totalChanges: 0 };
 
-  return true;
+    const perm = await verifyHandlePermission(handle, false);
+    if (perm !== 'granted') {
+      return { success: false, totalChanges: 0 };
+    }
+
+    // 1. Check if backup is needed or forced
+    await performBackup(handle, force);
+
+    // 2. Sync with other devices in the shared folder
+    const syncRes = await syncDeviceFiles(handle, force);
+    const totalChanges = syncRes.mergeResult?.totalChanges || 0;
+
+    return { success: true, totalChanges };
+  } catch (err) {
+    console.warn('maybeBackupAndSync error:', err);
+    return { success: false, totalChanges: 0 };
+  } finally {
+    isBackupSyncRunning = false;
+  }
 }

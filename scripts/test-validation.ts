@@ -10,6 +10,7 @@ import {
   sanitizeLibraryItem,
 } from '../src/lib/schemaSanitizers';
 import { advanceRecurringTask, useEkirumStore } from '../src/store/useEkirumStore';
+import { syncDeviceFiles } from '../src/lib/backupService';
 import { INITIAL_USER } from '../src/lib/seedData';
 import { db } from '../src/lib/db';
 import type { Task } from '../src/types';
@@ -227,5 +228,118 @@ assert.deepStrictEqual(INITIAL_USER, initialUserSnapshot, 'INITIAL_USER must rem
 const currentUserInStore = useEkirumStore.getState().user;
 assert.notStrictEqual(currentUserInStore, INITIAL_USER, 'Store user should be a cloned reference, not INITIAL_USER directly');
 console.log('Test 9: INITIAL_USER immutability verified under syncWithDatabase fallback: PASSED');
+
+// Test 10: syncDeviceFiles throttling and lastModified avoidance
+const mockRemoteTask = {
+  id: 'remote-device-task-1',
+  projectId: 'proj-1',
+  title: 'Task from Remote Tablet',
+  priority: 'p2' as const,
+  labels: [],
+  completed: false,
+  subtasks: [],
+  createdAt: '2026-10-01T10:00:00.000Z',
+  updatedAt: '2026-10-01T10:00:00.000Z',
+  isDeleted: false,
+};
+
+const mockFiles = [
+  {
+    name: 'device-tablet-xyz.json',
+    content: JSON.stringify({
+      schemaVersion: 1,
+      deviceId: 'device-tablet-xyz',
+      exportedAt: '2026-10-01T10:00:00.000Z',
+      tables: {
+        tasks: [mockRemoteTask],
+        projects: [],
+        skills: [],
+        habits: [],
+        habitEvents: [],
+        achievements: [],
+        userProfile: [],
+        libraryItems: [],
+      },
+    }),
+    lastModified: 5000,
+  },
+];
+
+const mockDirHandle = {
+  kind: 'directory',
+  name: 'mock-folder',
+  values: async function* () {
+    for (const f of mockFiles) {
+      yield {
+        kind: 'file',
+        name: f.name,
+        getFile: async () => ({
+          name: f.name,
+          lastModified: f.lastModified,
+          text: async () => f.content,
+        }),
+      };
+    }
+  },
+} as any;
+
+// First forced run processes file and imports remote task
+const firstSync = await syncDeviceFiles(mockDirHandle, true);
+assert.strictEqual(firstSync.filesProcessed, 1);
+assert.strictEqual(firstSync.mergeResult?.totalChanges, 1);
+const importedTask = await db.tasks.get('remote-device-task-1');
+assert.ok(importedTask);
+assert.strictEqual(importedTask.title, 'Task from Remote Tablet');
+
+// Immediate unforced run is throttled (< 30s)
+const throttledSync = await syncDeviceFiles(mockDirHandle, false);
+assert.strictEqual(throttledSync.filesProcessed, 0);
+assert.strictEqual(throttledSync.mergeResult?.totalChanges, 0);
+
+// Forced run with untouched file.lastModified skips reading and parsing
+const skippedSync = await syncDeviceFiles(mockDirHandle, true);
+assert.strictEqual(skippedSync.filesProcessed, 0, 'Untouched file.lastModified must be skipped');
+assert.strictEqual(skippedSync.mergeResult?.totalChanges, 0);
+
+// Bumped file.lastModified processes and merges new data
+mockFiles[0].lastModified = 9000;
+mockRemoteTask.title = 'Updated Title from Remote Tablet';
+mockRemoteTask.updatedAt = '2026-10-02T10:00:00.000Z';
+mockFiles[0].content = JSON.stringify({
+  schemaVersion: 1,
+  deviceId: 'device-tablet-xyz',
+  exportedAt: '2026-10-02T10:00:00.000Z',
+  tables: {
+    tasks: [mockRemoteTask],
+    projects: [],
+    skills: [],
+    habits: [],
+    habitEvents: [],
+    achievements: [],
+    userProfile: [],
+    libraryItems: [],
+  },
+});
+
+const bumpedSync = await syncDeviceFiles(mockDirHandle, true);
+assert.strictEqual(bumpedSync.filesProcessed, 1, 'Bumped mtime must be processed');
+assert.strictEqual(bumpedSync.mergeResult?.totalChanges, 1);
+const updatedTask = await db.tasks.get('remote-device-task-1');
+assert.strictEqual(updatedTask?.title, 'Updated Title from Remote Tablet');
+console.log('Test 10: syncDeviceFiles throttling and lastModified check verified: PASSED');
+
+// Test 11: triggerBackupAndSync preserves store array identities when no changes merged
+const habitsRefBefore = useEkirumStore.getState().habits;
+const projectsRefBefore = useEkirumStore.getState().projects;
+
+// triggerBackupAndSync without changes
+await useEkirumStore.getState().triggerBackupAndSync(false);
+
+const habitsRefAfter = useEkirumStore.getState().habits;
+const projectsRefAfter = useEkirumStore.getState().projects;
+
+assert.strictEqual(habitsRefAfter, habitsRefBefore, 'Habits array identity must be preserved on no-change sync');
+assert.strictEqual(projectsRefAfter, projectsRefBefore, 'Projects array identity must be preserved on no-change sync');
+console.log('Test 11: triggerBackupAndSync preserves store array identities when totalChanges === 0: PASSED');
 
 console.log('\n🎉 ALL VALIDATION & DATA INTEGRITY TESTS PASSED!');

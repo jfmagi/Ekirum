@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { IconHelper } from '../common/IconHelper';
 import { HabitFrequency } from '../../types';
@@ -49,25 +49,38 @@ export const HabitModal: React.FC = () => {
   const [icon, setIcon] = useState('Compass');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  const prevIsOpenRef = useRef(false);
+  const prevEditingIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (editingHabit) {
-      setTitle(editingHabit.title);
-      setDescription(editingHabit.description || '');
-      setProjectId(editingHabit.projectId || '');
-      setFrequency(editingHabit.frequency || 'daily');
-      setColor(editingHabit.color || '#8B1528');
-      setIcon(editingHabit.icon || 'Compass');
-      setConfirmDelete(false);
-    } else {
-      setTitle('');
-      setDescription('');
-      setProjectId(projects[0]?.id || '');
-      setFrequency('daily');
-      setColor('#8B1528');
-      setIcon('Compass');
+    const justOpened = isOpen && !prevIsOpenRef.current;
+    const habitChanged = editingHabitId !== prevEditingIdRef.current;
+
+    if (justOpened || habitChanged) {
+      if (editingHabitId) {
+        const habitToEdit = habits.find((h) => h.id === editingHabitId);
+        if (habitToEdit) {
+          setTitle(habitToEdit.title);
+          setDescription(habitToEdit.description || '');
+          setProjectId(habitToEdit.projectId || '');
+          setFrequency(habitToEdit.frequency || 'daily');
+          setColor(habitToEdit.color || '#8B1528');
+          setIcon(habitToEdit.icon || 'Compass');
+        }
+      } else {
+        setTitle('');
+        setDescription('');
+        setProjectId(projects[0]?.id || '');
+        setFrequency('daily');
+        setColor('#8B1528');
+        setIcon('Compass');
+      }
       setConfirmDelete(false);
     }
-  }, [editingHabit, projects, isOpen]);
+
+    prevIsOpenRef.current = isOpen;
+    prevEditingIdRef.current = editingHabitId;
+  }, [isOpen, editingHabitId]);
 
   const close = () => {
     setNewHabitModalOpen(false);
