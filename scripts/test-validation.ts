@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import assert from 'node:assert';
 import { MAX_LENGTHS, clampString, clampOptionalString } from '../src/lib/validation';
 import {
@@ -8,6 +9,10 @@ import {
   sanitizeUserProfile,
   sanitizeLibraryItem,
 } from '../src/lib/schemaSanitizers';
+import { advanceRecurringTask, useEkirumStore } from '../src/store/useEkirumStore';
+import { INITIAL_USER } from '../src/lib/seedData';
+import { db } from '../src/lib/db';
+import type { Task } from '../src/types';
 
 console.log('🧪 Starting Text Input Length & Clamping verification tests...\n');
 
@@ -95,4 +100,132 @@ assert.strictEqual(cleanLib.creator?.length, MAX_LENGTHS.LIBRARY_CREATOR);
 assert.strictEqual(cleanLib.notes?.length, MAX_LENGTHS.LIBRARY_NOTES);
 console.log('Test 6: sanitizeLibraryItem enforces MAX_LENGTHS: PASSED');
 
-console.log('\n🎉 ALL TEXT VALIDATION & CLAMPING TESTS PASSED!');
+// Test 7: advanceRecurringTask deterministic archive ID across multiple calls and timestamps
+const recurringTask: Task = {
+  id: 'rec-task-1',
+  projectId: 'proj-1',
+  title: 'Daily Meditation',
+  priority: 'p2',
+  labels: ['health'],
+  completed: false,
+  recurrence: 'daily',
+  dueDate: '2026-10-12',
+  subtasks: [],
+  createdAt: '2026-10-01T08:00:00.000Z',
+  updatedAt: '2026-10-01T08:00:00.000Z',
+  isDeleted: false,
+};
+
+const res1 = advanceRecurringTask(recurringTask, '2026-10-12', '2026-10-12T09:00:00.000Z');
+const res2 = advanceRecurringTask(recurringTask, '2026-10-12', '2026-10-12T15:30:00.000Z');
+
+assert.strictEqual(res1.completedArchiveTask.id, 'task-archive-rec-task-1-2026-10-12');
+assert.strictEqual(res1.completedArchiveTask.id, res2.completedArchiveTask.id);
+assert.strictEqual(res1.completedArchiveTask.completed, true);
+assert.strictEqual(res1.activeRecurringTask.dueDate, '2026-10-13');
+
+// Test dateless recurring fallback uses todayStr deterministically
+const datelessRecurring: Task = {
+  ...recurringTask,
+  id: 'rec-task-2',
+  dueDate: undefined,
+};
+const res3 = advanceRecurringTask(datelessRecurring, '2026-10-12', '2026-10-12T09:00:00.000Z');
+assert.strictEqual(res3.completedArchiveTask.id, 'task-archive-rec-task-2-2026-10-12');
+console.log('Test 7: advanceRecurringTask deterministic archive ID across devices/times: PASSED');
+
+// Test 8: reorderTasks fractional ordering updates only the moved task
+const t1Timestamp = '2026-10-01T10:00:00.000Z';
+const t2Timestamp = '2026-10-01T11:00:00.000Z';
+const t3Timestamp = '2026-10-01T12:00:00.000Z';
+
+const t1: Task = {
+  id: 'task-reorder-1',
+  projectId: 'proj-1',
+  title: 'Task 1',
+  priority: 'p2',
+  labels: [],
+  completed: false,
+  order: 10,
+  subtasks: [],
+  createdAt: t1Timestamp,
+  updatedAt: t1Timestamp,
+  isDeleted: false,
+};
+const t2: Task = {
+  id: 'task-reorder-2',
+  projectId: 'proj-1',
+  title: 'Task 2',
+  priority: 'p2',
+  labels: [],
+  completed: false,
+  order: 20,
+  subtasks: [],
+  createdAt: t2Timestamp,
+  updatedAt: t2Timestamp,
+  isDeleted: false,
+};
+const t3: Task = {
+  id: 'task-reorder-3',
+  projectId: 'proj-1',
+  title: 'Task 3',
+  priority: 'p2',
+  labels: [],
+  completed: false,
+  order: 30,
+  subtasks: [],
+  createdAt: t3Timestamp,
+  updatedAt: t3Timestamp,
+  isDeleted: false,
+};
+
+await db.tasks.bulkPut([t1, t2, t3]);
+useEkirumStore.setState({ tasks: [t1, t2, t3] });
+
+// Move task 3 between task 1 (order 10) and task 2 (order 20)
+useEkirumStore.getState().reorderTasks('task-reorder-3', 'task-reorder-2');
+
+const stateAfterReorder = useEkirumStore.getState();
+const movedT3 = stateAfterReorder.tasks.find((t) => t.id === 'task-reorder-3');
+const untouchedT1 = stateAfterReorder.tasks.find((t) => t.id === 'task-reorder-1');
+const untouchedT2 = stateAfterReorder.tasks.find((t) => t.id === 'task-reorder-2');
+
+assert.ok(movedT3);
+assert.strictEqual(movedT3.order, 15, 'Fractional order (10 + 20) / 2 should be 15');
+assert.notStrictEqual(movedT3.updatedAt, t3Timestamp, 'Moved task updatedAt should be bumped');
+
+assert.ok(untouchedT1);
+assert.strictEqual(untouchedT1.order, 10);
+assert.strictEqual(untouchedT1.updatedAt, t1Timestamp, 'Neighbor t1 updatedAt must remain untouched');
+
+assert.ok(untouchedT2);
+assert.strictEqual(untouchedT2.order, 20);
+assert.strictEqual(untouchedT2.updatedAt, t2Timestamp, 'Neighbor t2 updatedAt must remain untouched');
+console.log('Test 8: reorderTasks updates order and updatedAt only on moved task: PASSED');
+
+// Test 9: INITIAL_USER immutability and syncWithDatabase clone guarantee
+const initialUserSnapshot = structuredClone(INITIAL_USER);
+
+// Object.freeze INITIAL_USER in the test to verify no in-place mutations occur
+Object.freeze(INITIAL_USER);
+Object.freeze(INITIAL_USER.achievements);
+
+// Clear userProfile in db to force fallback to INITIAL_USER in syncWithDatabase
+await db.userProfile.clear();
+await db.tasks.clear();
+await db.projects.clear();
+await db.skills.clear();
+await db.habits.clear();
+await db.achievements.clear();
+
+// Trigger syncWithDatabase
+await useEkirumStore.getState().syncWithDatabase();
+
+// Assert INITIAL_USER has not been modified
+assert.deepStrictEqual(INITIAL_USER, initialUserSnapshot, 'INITIAL_USER must remain strictly unmutated');
+
+const currentUserInStore = useEkirumStore.getState().user;
+assert.notStrictEqual(currentUserInStore, INITIAL_USER, 'Store user should be a cloned reference, not INITIAL_USER directly');
+console.log('Test 9: INITIAL_USER immutability verified under syncWithDatabase fallback: PASSED');
+
+console.log('\n🎉 ALL VALIDATION & DATA INTEGRITY TESTS PASSED!');

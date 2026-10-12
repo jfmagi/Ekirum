@@ -330,7 +330,8 @@ const inFlightLibraryActions = new Set<string>();
 
 /**
  * Centralized recurrence invariant:
- * - Creates an immutable completed archive task with a guaranteed unique UUID
+ * - Creates an immutable completed archive task with a deterministic ID (${task.id}-${occurrenceDate})
+ *   ensuring idempotent multi-device sync and preventing duplicate archive rows.
  * - Advances the active recurring task due date while preserving its original ID
  */
 export function advanceRecurringTask(
@@ -339,7 +340,8 @@ export function advanceRecurringTask(
   nowIso: string
 ): { completedArchiveTask: Task; activeRecurringTask: Task } {
   const nextDueDate = getNextRecurrenceDate(task.dueDate, task.recurrence || 'daily', todayStr);
-  const archiveId = generateUuid('task');
+  const occurrenceDate = task.dueDate || todayStr;
+  const archiveId = `task-archive-${task.id}-${occurrenceDate}`;
 
   const completedArchiveTask: Task = {
     ...task,
@@ -378,7 +380,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         habits: INITIAL_HABITS,
         libraryItems: [],
         achievements: INITIAL_ACHIEVEMENTS,
-        user: INITIAL_USER,
+        user: { ...INITIAL_USER, achievements: [...INITIAL_USER.achievements] },
 
         currentView: 'today',
         selectedProjectId: null,
@@ -578,7 +580,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           const activeProjects = allProjects.filter((p) => !p.isDeleted);
           const activeSkills = allSkills.filter((s) => !s.isDeleted);
           const activeHabits = allHabits.filter((h) => !h.isDeleted);
-          const currentUser = allUsers[0] || INITIAL_USER;
+          let currentUser: UserProfile = allUsers[0]
+            ? { ...allUsers[0], achievements: [...(allUsers[0].achievements || [])] }
+            : { ...INITIAL_USER, achievements: [...(INITIAL_USER.achievements || [])] };
           const currentAchs = allAchievements.length > 0 ? allAchievements : INITIAL_ACHIEVEMENTS;
 
           const { updatedAchievements, newlyUnlocked, earnedXpBonus, hasChanges, projectSkillXpGains } = evaluateAchievements(
@@ -602,10 +606,14 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             unlockedIds.forEach((id) => currentAchIds.add(id));
             const newUserXp = currentUser.totalXp + earnedXpBonus;
             const { level: newLevel, rank: newRank } = computeUserLevelAndRank(newUserXp);
-            currentUser.totalXp = newUserXp;
-            currentUser.ekirumLevel = newLevel;
-            currentUser.ekirumRank = newRank;
-            currentUser.achievements = Array.from(currentAchIds);
+            currentUser = {
+              ...currentUser,
+              totalXp: newUserXp,
+              ekirumLevel: newLevel,
+              ekirumRank: newRank,
+              achievements: Array.from(currentAchIds),
+              updatedAt: new Date().toISOString(),
+            };
             db.userProfile.put(currentUser).catch(saveCatch('updating user profile'));
           }
 
@@ -1029,17 +1037,36 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         set((state) => {
           const oldIndex = state.tasks.findIndex((t) => t.id === activeId);
           const newIndex = state.tasks.findIndex((t) => t.id === overId);
-          if (oldIndex === -1 || newIndex === -1) return state;
+          if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return state;
 
           const updatedTasks = [...state.tasks];
           const [moved] = updatedTasks.splice(oldIndex, 1);
           updatedTasks.splice(newIndex, 0, moved);
 
-          const now = new Date().toISOString();
-          const indexed = updatedTasks.map((t, idx) => ({ ...t, order: idx, updatedAt: now }));
+          const prevTask = updatedTasks[newIndex - 1];
+          const nextTask = updatedTasks[newIndex + 1];
 
-          indexed.forEach((t) => db.tasks.update(t.id, { order: t.order, updatedAt: now }).catch(saveCatch('reordering tasks')));
-          return { tasks: indexed };
+          const prevOrder = typeof prevTask?.order === 'number' ? prevTask.order : (newIndex > 0 ? newIndex - 1 : undefined);
+          const nextOrder = typeof nextTask?.order === 'number' ? nextTask.order : (newIndex < updatedTasks.length - 1 ? newIndex + 1 : undefined);
+
+          let newOrder: number;
+          if (prevOrder !== undefined && nextOrder !== undefined) {
+            newOrder = (prevOrder + nextOrder) / 2;
+          } else if (prevOrder !== undefined) {
+            newOrder = prevOrder + 1;
+          } else if (nextOrder !== undefined) {
+            newOrder = nextOrder - 1;
+          } else {
+            newOrder = 0;
+          }
+
+          const now = new Date().toISOString();
+          const movedUpdated = { ...moved, order: newOrder, updatedAt: now };
+          updatedTasks[newIndex] = movedUpdated;
+
+          // Update only the moved task in IndexedDB; other tasks' order and updatedAt remain untouched
+          db.tasks.update(activeId, { order: newOrder, updatedAt: now }).catch(saveCatch('reordering task'));
+          return { tasks: updatedTasks };
         });
       },
 
@@ -1949,7 +1976,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             habits: [],
             libraryItems: [],
             achievements: INITIAL_ACHIEVEMENTS,
-            user: INITIAL_USER,
+            user: { ...INITIAL_USER, achievements: [...INITIAL_USER.achievements] },
             currentView: 'today',
             selectedProjectId: null,
             taskDetailId: null,
@@ -1962,6 +1989,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       },
 
       resetToDefaults: async () => {
+        const clonedUser = { ...INITIAL_USER, achievements: [...INITIAL_USER.achievements] };
         await db.transaction(
           'rw',
           [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.achievements, db.userProfile, db.libraryItems],
@@ -1980,7 +2008,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             await db.habits.bulkPut(INITIAL_HABITS);
             await db.tasks.bulkPut(INITIAL_TASKS);
             await db.achievements.bulkPut(INITIAL_ACHIEVEMENTS);
-            await db.userProfile.put(INITIAL_USER);
+            await db.userProfile.put(clonedUser);
           }
         );
 
@@ -1991,7 +2019,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           habits: INITIAL_HABITS,
           libraryItems: [],
           achievements: INITIAL_ACHIEVEMENTS,
-          user: INITIAL_USER,
+          user: clonedUser,
           currentView: 'today',
           selectedProjectId: null,
         });
