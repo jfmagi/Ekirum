@@ -233,6 +233,10 @@ export async function initializeDatabase(): Promise<void> {
               }
             }
           });
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('ekirum-db-initialized-v1', 'true');
+            localStorage.removeItem('ekirum-storage-v1');
+          }
           return;
         }
       }

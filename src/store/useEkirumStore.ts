@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
 import {
   Task,
   Project,
@@ -362,9 +361,7 @@ export function advanceRecurringTask(
   return { completedArchiveTask, activeRecurringTask };
 }
 
-export const useEkirumStore = create<EkirumStore>()(
-  persist(
-    (set, get) => {
+export const useEkirumStore = create<EkirumStore>()((set, get) => {
       const handleStorageError = (error: unknown, actionDesc = 'saving data') => {
         console.warn(`[Storage Error] Failed while ${actionDesc}:`, error);
         const msg = error instanceof Error ? error.message : String(error);
@@ -1999,53 +1996,6 @@ export const useEkirumStore = create<EkirumStore>()(
           selectedProjectId: null,
         });
       },
-    };
-  },
-    {
-      name: 'ekirum-storage-v1',
-      storage: createJSONStorage(() => ({
-        getItem: (name: string) => {
-          if (typeof localStorage === 'undefined') return null;
-          const val = localStorage.getItem(name);
-          if (val) return val;
-          const legacy =
-            localStorage.getItem('ekitero-storage-v1') ||
-            localStorage.getItem('taskocraft-storage-v1') ||
-            localStorage.getItem('doist-storage-v1');
-          if (legacy) {
-            localStorage.setItem(name, legacy);
-            localStorage.removeItem('ekitero-storage-v1');
-            localStorage.removeItem('taskocraft-storage-v1');
-            localStorage.removeItem('doist-storage-v1');
-            return legacy;
-          }
-          return null;
-        },
-        setItem: (name: string, value: string) => {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem(name, value);
-          }
-        },
-        removeItem: (name: string) => {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.removeItem(name);
-          }
-        },
-      })),
-      onRehydrateStorage: () => (state) => {
-        if (state && (state.displayMode as unknown as string) === 'board') {
-          state.displayMode = 'list';
-        }
-      },
-      partialize: (state) => ({
-        tasks: state.tasks,
-        projects: state.projects,
-        skills: state.skills,
-        habits: state.habits,
-        achievements: state.achievements,
-        user: state.user,
-        displayMode: (state.displayMode as unknown as string) === 'board' ? 'list' : state.displayMode,
-      }),
+      };
     }
-  )
 );
