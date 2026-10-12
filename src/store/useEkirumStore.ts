@@ -124,10 +124,12 @@ export {
 export function getNextRecurrenceDate(
   currentDueDate: string | undefined,
   recurrence: Recurrence,
-  todayStr: string
+  todayStr: string,
+  anchorDay?: number
 ): string {
   const baseStr = currentDueDate && currentDueDate > todayStr ? currentDueDate : todayStr;
   const [y, m, d] = baseStr.split('-').map(Number);
+  const effectiveDay = anchorDay && anchorDay >= 1 && anchorDay <= 31 ? anchorDay : d;
   const date = new Date(y, m - 1, d);
 
   if (recurrence === 'daily') {
@@ -149,7 +151,7 @@ export function getNextRecurrenceDate(
     // In JS Date, day 0 of monthIndex M is the last day of month M-1
     // Passing targetMonth as the 0-day index returns the last day of targetMonth
     const daysInTargetMonth = new Date(targetYear, targetMonth, 0).getDate();
-    const targetDay = Math.min(d, daysInTargetMonth);
+    const targetDay = Math.min(effectiveDay, daysInTargetMonth);
     const ny = targetYear;
     const nm = String(targetMonth).padStart(2, '0');
     const nd = String(targetDay).padStart(2, '0');
@@ -251,6 +253,7 @@ export interface EkirumStore {
     dueDate?: string;
     dueTime?: string;
     recurrence?: Recurrence;
+    recurrenceAnchorDay?: number;
     priority?: Priority;
     labels?: string[];
     section?: string;
@@ -340,7 +343,17 @@ export function advanceRecurringTask(
   todayStr: string,
   nowIso: string
 ): { completedArchiveTask: Task; activeRecurringTask: Task } {
-  const nextDueDate = getNextRecurrenceDate(task.dueDate, task.recurrence || 'daily', todayStr);
+  const parsedDay = task.dueDate ? Number(task.dueDate.split('-')[2]) : undefined;
+  const anchorDay =
+    task.recurrenceAnchorDay ??
+    (parsedDay && !isNaN(parsedDay) && parsedDay >= 1 && parsedDay <= 31 ? parsedDay : undefined);
+
+  const nextDueDate = getNextRecurrenceDate(
+    task.dueDate,
+    task.recurrence || 'daily',
+    todayStr,
+    anchorDay
+  );
   const occurrenceDate = task.dueDate || todayStr;
   const archiveId = `task-archive-${task.id}-${occurrenceDate}`;
 
@@ -356,6 +369,7 @@ export function advanceRecurringTask(
   const activeRecurringTask: Task = {
     ...task,
     dueDate: nextDueDate,
+    recurrenceAnchorDay: anchorDay,
     completed: false,
     completedAt: undefined,
     updatedAt: nowIso,
@@ -713,6 +727,13 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           effectiveDueDate = `${y}-${m}-${d}`;
         }
 
+        const parsedDay = effectiveDueDate ? Number(effectiveDueDate.split('-')[2]) : undefined;
+        const recurrenceAnchorDay =
+          data.recurrenceAnchorDay ??
+          (data.recurrence === 'monthly' && parsedDay && !isNaN(parsedDay) && parsedDay >= 1 && parsedDay <= 31
+            ? parsedDay
+            : undefined);
+
         const now = new Date().toISOString();
 
         const newTask: Task = {
@@ -723,6 +744,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           dueDate: effectiveDueDate,
           dueTime: data.dueTime,
           recurrence: data.recurrence || 'none',
+          recurrenceAnchorDay,
           priority: data.priority || 'p4',
           labels: (data.labels || []).map((l) => clampString(l.trim(), MAX_LENGTHS.LABEL)).filter(Boolean),
           completed: false,

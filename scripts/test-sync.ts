@@ -240,8 +240,8 @@ async function runTests() {
     ekirumLevel: 1,
     ekirumRank: 'Novice',
     totalXp: 0,
-    dailyXpDate: undefined,
-    dailyXpEarned: 0,
+    dailyXpDate: '2026-10-12',
+    dailyXpEarned: 150,
     achievements: [],
     soundEnabled: true,
     accentColor: 'crimson',
@@ -259,8 +259,8 @@ async function runTests() {
     ekirumLevel: 30,
     ekirumRank: 'Commander',
     totalXp: 8500,
-    dailyXpDate: undefined,
-    dailyXpEarned: 0,
+    dailyXpDate: '2026-10-11',
+    dailyXpEarned: 400,
     achievements: ['ach-1', 'ach-2', 'ach-proj-1'],
     soundEnabled: true,
     accentColor: 'crimson',
@@ -319,8 +319,8 @@ async function runTests() {
     ekirumLevel: 32,
     ekirumRank: 'High Commander',
     totalXp: 9800,
-    dailyXpDate: undefined,
-    dailyXpEarned: 0,
+    dailyXpDate: '2026-10-12',
+    dailyXpEarned: 350,
     achievements: ['ach-1', 'ach-3'],
     soundEnabled: true,
     accentColor: 'crimson',
@@ -339,9 +339,16 @@ async function runTests() {
   const finalUser = await db.userProfile.get('user-1');
   console.log(`  ✓ Monotonic XP progression: ${finalUser?.totalXp} XP (Level ${finalUser?.ekirumLevel}, Rank: ${finalUser?.ekirumRank})`);
   console.log(`  ✓ Unioned achievements: ${JSON.stringify(finalUser?.achievements)}`);
+  console.log(`  ✓ Preserved daily XP cap tracking: ${finalUser?.dailyXpDate} (${finalUser?.dailyXpEarned} XP earned today)`);
 
   if (!finalUser || finalUser.totalXp !== 9800 || finalUser.ekirumLevel < 32) {
     throw new Error('Multi-device progress did not advance to highest level and XP.');
+  }
+
+  if (finalUser.dailyXpDate !== '2026-10-12' || finalUser.dailyXpEarned !== 350) {
+    throw new Error(
+      `Daily XP cap state lost during multi-device merge: expected 2026-10-12 / 350, got ${finalUser.dailyXpDate} / ${finalUser.dailyXpEarned}`
+    );
   }
 
   console.log('\n🎉 ALL TESTS PASSED! Dexie schema, migrations, exportAll, and LWW importAndMerge are verified!\n');

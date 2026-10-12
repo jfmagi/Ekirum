@@ -11,10 +11,19 @@ import {
 } from '../src/lib/schemaSanitizers';
 import { advanceRecurringTask, useEkirumStore } from '../src/store/useEkirumStore';
 import { syncDeviceFiles, getBackupStatus } from '../src/lib/backupService';
-import { compactTombstones, importAndMerge, MAX_RECORDS_PER_TABLE } from '../src/lib/syncEngine';
+import { compactTombstones, importAndMerge, exportAll, MAX_RECORDS_PER_TABLE } from '../src/lib/syncEngine';
 import { INITIAL_USER } from '../src/lib/seedData';
 import { db } from '../src/lib/db';
-import type { Task } from '../src/types';
+import type {
+  Task,
+  Project,
+  Skill,
+  Habit,
+  HabitEvent,
+  Achievement,
+  UserProfile,
+  LibraryItem,
+} from '../src/types';
 
 console.log('🧪 Starting Text Input Length & Clamping verification tests...\n');
 
@@ -420,6 +429,219 @@ const initPromiseB = useEkirumStore.getState().initStorage();
 assert.strictEqual(initPromiseA, initPromiseB, 'Concurrent initStorage calls must share the same memoized promise');
 await Promise.all([initPromiseA, initPromiseB]);
 console.log('Test 15: initStorage re-entrancy memoization: PASSED');
+
+// Test 16: End-to-End Round-Trip Fidelity (fully-populated records → exportAll → importAndMerge → all fields equal)
+const nowIso = new Date().toISOString();
+
+const fullTask: Task = {
+  id: 'task-fidelity-1',
+  projectId: 'proj-fidelity-1',
+  title: 'Full Fidelity Task',
+  notes: 'Detailed notes on fidelity',
+  dueDate: '2026-10-31',
+  dueTime: '14:30',
+  recurrence: 'monthly',
+  recurrenceAnchorDay: 31,
+  priority: 'p1',
+  labels: ['fidelity', 'e2e'],
+  completed: false,
+  subtasks: [
+    { id: 'sub-1', title: 'Subtask 1', completed: true },
+    { id: 'sub-2', title: 'Subtask 2', completed: false },
+  ],
+  section: 'In Progress',
+  order: 5,
+  createdAt: nowIso,
+  updatedAt: nowIso,
+  isDeleted: false,
+};
+
+const fullProject: Project = {
+  id: 'proj-fidelity-1',
+  name: 'Fidelity Project',
+  color: '#8B1528',
+  icon: 'Compass',
+  skillId: 'skill-fidelity-1',
+  description: 'Project for testing round-trip data fidelity',
+  createdAt: nowIso,
+  updatedAt: nowIso,
+  isDeleted: false,
+};
+
+const fullSkill: Skill = {
+  id: 'skill-fidelity-1',
+  projectId: 'proj-fidelity-1',
+  name: 'Architecture',
+  level: 12,
+  xp: 3450,
+  xpToNextLevel: 4000,
+  icon: 'Layers',
+  streak: 7,
+  lastCompletedDate: '2026-10-12',
+  totalCompleted: 45,
+  createdAt: nowIso,
+  updatedAt: nowIso,
+  isDeleted: false,
+};
+
+const fullHabit: Habit = {
+  id: 'habit-fidelity-1',
+  title: 'Deep Work Habit',
+  description: '4 hours daily deep work block',
+  projectId: 'proj-fidelity-1',
+  frequency: 'daily',
+  color: '#8B1528',
+  icon: 'Sparkle',
+  completedDates: ['2026-10-10', '2026-10-11', '2026-10-12'],
+  streak: 3,
+  longestStreak: 14,
+  createdAt: nowIso,
+  updatedAt: nowIso,
+  isDeleted: false,
+};
+
+const fullHabitEvents: HabitEvent[] = [
+  {
+    id: 'event-fidelity-1',
+    habitId: 'habit-fidelity-1',
+    date: '2026-10-10',
+    completedAt: nowIso,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    isDeleted: false,
+  },
+  {
+    id: 'event-fidelity-2',
+    habitId: 'habit-fidelity-1',
+    date: '2026-10-11',
+    completedAt: nowIso,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    isDeleted: false,
+  },
+  {
+    id: 'event-fidelity-3',
+    habitId: 'habit-fidelity-1',
+    date: '2026-10-12',
+    completedAt: nowIso,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    isDeleted: false,
+  },
+];
+
+const fullAchievement: Achievement = {
+  id: 'ach-fidelity-1',
+  title: 'Master Architect',
+  description: 'Reach maximum architecture milestone',
+  icon: 'Award',
+  progress: 10,
+  maxProgress: 10,
+  unlockedAt: nowIso,
+  xpReward: 250,
+  xpClaimed: true,
+  projectId: 'proj-fidelity-1',
+  createdAt: nowIso,
+  updatedAt: nowIso,
+  isDeleted: false,
+};
+
+const fullUser: UserProfile = {
+  id: 'user-fidelity-1',
+  name: 'Marcus Aurelius',
+  avatar: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  ekirumLevel: 15,
+  ekirumRank: 'Commander',
+  totalXp: 4850,
+  dailyXpDate: '2026-10-12',
+  dailyXpEarned: 320,
+  achievements: ['ach-fidelity-1', 'ach-1'],
+  soundEnabled: true,
+  accentColor: 'crimson',
+  onboardingCompleted: true,
+  createdAt: nowIso,
+  updatedAt: nowIso,
+  isDeleted: false,
+};
+
+const fullLibraryItem: LibraryItem = {
+  id: 'lib-fidelity-1',
+  title: 'Meditations',
+  type: 'book',
+  creator: 'Marcus Aurelius',
+  url: 'https://example.com/meditations',
+  notes: 'Stoic philosophy classic',
+  difficulty: 2,
+  projectId: 'proj-fidelity-1',
+  status: 'done',
+  review: 'Timeless masterpiece',
+  finishedDate: '2026-10-10',
+  completedAt: nowIso,
+  xpAwarded: true,
+  xpEarned: 100,
+  createdAt: nowIso,
+  updatedAt: nowIso,
+  isDeleted: false,
+};
+
+// Seed records into Dexie
+await Promise.all([
+  db.tasks.put(fullTask),
+  db.projects.put(fullProject),
+  db.skills.put(fullSkill),
+  db.habits.put(fullHabit),
+  db.habitEvents.bulkPut(fullHabitEvents),
+  db.achievements.put(fullAchievement),
+  db.userProfile.put(fullUser),
+  db.libraryItems.put(fullLibraryItem),
+]);
+
+// Export backup
+const exportedBackup = await exportAll('fidelity-device');
+
+// Delete the records from Dexie to test clean re-import
+await Promise.all([
+  db.tasks.delete(fullTask.id),
+  db.projects.delete(fullProject.id),
+  db.skills.delete(fullSkill.id),
+  db.habits.delete(fullHabit.id),
+  db.habitEvents.bulkDelete(fullHabitEvents.map((e) => e.id)),
+  db.achievements.delete(fullAchievement.id),
+  db.userProfile.delete(fullUser.id),
+  db.libraryItems.delete(fullLibraryItem.id),
+]);
+
+// Import and merge the exported backup
+await importAndMerge(exportedBackup);
+
+// Verify exact equality of each restored record
+const restoredTask = await db.tasks.get(fullTask.id);
+assert.deepStrictEqual(restoredTask, fullTask, 'Task must survive export -> import with all fields identical');
+
+const restoredProject = await db.projects.get(fullProject.id);
+assert.deepStrictEqual(restoredProject, fullProject, 'Project must survive export -> import with all fields identical');
+
+const restoredSkill = await db.skills.get(fullSkill.id);
+assert.deepStrictEqual(restoredSkill, fullSkill, 'Skill must survive export -> import with all fields identical');
+
+const restoredHabit = await db.habits.get(fullHabit.id);
+assert.deepStrictEqual(restoredHabit, fullHabit, 'Habit must survive export -> import with all fields identical');
+
+for (const event of fullHabitEvents) {
+  const restoredEvent = await db.habitEvents.get(event.id);
+  assert.deepStrictEqual(restoredEvent, event, 'HabitEvent must survive export -> import with all fields identical');
+}
+
+const restoredAchievement = await db.achievements.get(fullAchievement.id);
+assert.deepStrictEqual(restoredAchievement, fullAchievement, 'Achievement must survive export -> import with all fields identical');
+
+const restoredUser = await db.userProfile.get(fullUser.id);
+assert.deepStrictEqual(restoredUser, fullUser, 'UserProfile must survive export -> import with all fields (including dailyXpDate and dailyXpEarned) identical');
+
+const restoredLibraryItem = await db.libraryItems.get(fullLibraryItem.id);
+assert.deepStrictEqual(restoredLibraryItem, fullLibraryItem, 'LibraryItem must survive export -> import with all fields identical');
+
+console.log('Test 16: Complete end-to-end round-trip fidelity across all 8 tables: PASSED');
 
 console.log('\n🎉 ALL VALIDATION & DATA INTEGRITY TESTS PASSED!');
 

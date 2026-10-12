@@ -1,8 +1,28 @@
 import 'fake-indexeddb/auto';
 import assert from 'node:assert';
-import { UserProfile, BackupTables } from '../src/types';
+import {
+  UserProfile,
+  BackupTables,
+  Task,
+  Skill,
+  Project,
+  LibraryItem,
+} from '../src/types';
 import { formatLocalDate } from '../src/lib/dateParser';
-import { useEkirumStore } from '../src/store/useEkirumStore';
+import {
+  useEkirumStore,
+  EKIRUM_RANKS,
+  getEkirumRankTitle,
+} from '../src/store/useEkirumStore';
+import {
+  evaluateAchievements,
+  isAchievementVisible,
+  getVisibleAchievements,
+  getProjectMilestoneXp,
+  getProjectMilestoneMeta,
+  applySkillXpGains,
+} from '../src/lib/achievements';
+import { INITIAL_ACHIEVEMENTS } from '../src/lib/seedData';
 
 console.log('🧪 Starting Character Profile & Avatar verification tests...\n');
 
@@ -69,7 +89,6 @@ const userRemovedAvatar: UserProfile = {
 assert.strictEqual(userRemovedAvatar.avatar, undefined);
 assert.strictEqual(userRemovedAvatar.name, 'Aurelius');
 // 6. Test 10 Ranks Progression System
-import { EKIRUM_RANKS, getEkirumRankTitle } from '../src/store/useEkirumStore';
 
 assert.strictEqual(EKIRUM_RANKS.length, 10, 'Must have exactly 10 ranks');
 assert.strictEqual(EKIRUM_RANKS[0], 'Novice');
@@ -99,9 +118,6 @@ assert.strictEqual(getEkirumRankTitle(500), 'Grandmaster');
 console.log('Test 6: 10 Ranks progression & unlimited levels verified: PASSED');
 
 // 7. Achievement Evaluation Engine Tests
-import { evaluateAchievements } from '../src/lib/achievements';
-import { INITIAL_ACHIEVEMENTS } from '../src/lib/seedData';
-import { Task, Skill } from '../src/types';
 
 // 7a. Initial empty state evaluation
 const emptyUser: UserProfile = {
@@ -258,7 +274,6 @@ assert.strictEqual(ach1After?.progress, 1, 'progress must remain maxProgress for
 console.log('Test 7f: Permanent unlock guarantee verified: PASSED');
 
 // 7g. Project creation milestones (1 and 5 projects)
-import { Project } from '../src/types';
 const sampleProj1: Project = {
   id: 'proj-1',
   name: 'Work',
@@ -351,7 +366,6 @@ assert.strictEqual(achTasks110?.progress, 110);
 console.log('Test 7h: Achievements for every 10 tasks completed (10, 50, 100, 110) verified: PASSED');
 
 // 7i. Major landmarks up to 1000 tasks (250, 500, 750, 1000)
-import { isAchievementVisible, getVisibleAchievements } from '../src/lib/achievements';
 const thousandTasks: Task[] = Array.from({ length: 1000 }, (_, i) => ({
   id: `task-thousand-${i + 1}`,
   title: `Task ${i + 1}`,
@@ -511,12 +525,6 @@ assert.ok(celebrationAfterProject?.xpEarned !== undefined && celebrationAfterPro
 console.log('Test 7n: Achievement unlock celebration modal trigger verified: PASSED');
 
 // 7o. Project-specific achievement milestone ladder & XP scaling
-import {
-  getProjectMilestoneXp,
-  getProjectMilestoneMeta,
-  applySkillXpGains,
-} from '../src/lib/achievements';
-import { Project, Skill, Task, LibraryItem } from '../src/types';
 
 assert.strictEqual(getProjectMilestoneXp(10), 25);
 assert.strictEqual(getProjectMilestoneXp(40), 25);

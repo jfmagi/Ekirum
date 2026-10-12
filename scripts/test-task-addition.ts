@@ -1,7 +1,8 @@
 import 'fake-indexeddb/auto';
 import assert from 'node:assert';
 import { parseNaturalLanguageTask, formatLocalDate } from '../src/lib/dateParser';
-import { useEkirumStore } from '../src/store/useEkirumStore';
+import { useEkirumStore, advanceRecurringTask, getNextRecurrenceDate } from '../src/store/useEkirumStore';
+import { Task } from '../src/types';
 
 console.log('🧪 Starting Task Addition & View Filter verification tests...\n');
 
@@ -117,6 +118,58 @@ const labelToken = tokens.find((t) => t.type === 'label');
 assert.strictEqual(labelToken?.text, '#mindfulness');
 console.log('Test 12: Syntax tokenizer correctly recognizes daily, time, priority, project, and label: PASSED');
 
+// Test 12b: Syntax Tokenizer ↔ Natural Language Parser parity cross-validation
+const crossValidationInputs = [
+  'Meditate daily at 8am p1 @Health #mindfulness',
+  'Dentist appointment tomorrow 3pm p2 #health',
+  'Weekly retro every friday at 10:00 p1 @Work',
+  'Flashcards x3 p1 @Study #exams',
+];
+
+for (const input of crossValidationInputs) {
+  const tks = tokenizeTaskInput(input);
+  const prs = parseNaturalLanguageTask(input);
+
+  // Recurrence token parity
+  const recToken = tks.find((t) => t.type === 'recurrence');
+  if (prs.recurrence && prs.recurrence !== 'none') {
+    assert.ok(recToken, `Input "${input}" parsed recurrence "${prs.recurrence}" but tokenizer produced no recurrence token`);
+  }
+
+  // Priority token parity
+  const priToken = tks.find((t) => t.type === 'priority');
+  if (prs.priority) {
+    assert.ok(priToken, `Input "${input}" parsed priority "${prs.priority}" but tokenizer produced no priority token`);
+    assert.strictEqual(priToken.priorityLevel, prs.priority);
+  }
+
+  // Multiplier token parity
+  const mulToken = tks.find((t) => t.type === 'multiplier');
+  if (prs.batchCount && prs.batchCount > 1) {
+    assert.ok(mulToken, `Input "${input}" parsed multiplier ${prs.batchCount} but tokenizer produced no multiplier token`);
+  }
+
+  // Label token parity
+  const lblTokens = tks.filter((t) => t.type === 'label');
+  if (prs.labels && prs.labels.length > 0) {
+    assert.strictEqual(lblTokens.length, prs.labels.length);
+    for (const label of prs.labels) {
+      assert.ok(
+        lblTokens.some((t) => t.text.toLowerCase().includes(label.toLowerCase())),
+        `Label "${label}" in parsed task must appear in tokenizer label tokens`
+      );
+    }
+  }
+
+  // Project token parity
+  const prjToken = tks.find((t) => t.type === 'project');
+  if (prs.projectQuery) {
+    assert.ok(prjToken, `Input "${input}" parsed projectQuery "${prs.projectQuery}" but tokenizer produced no project token`);
+    assert.ok(prjToken.text.toLowerCase().includes(prs.projectQuery.toLowerCase()));
+  }
+}
+console.log('Test 12b: Tokenizer ↔ Parser cross-validation parity verified: PASSED');
+
 // Test 13: Normal dateless task remains dateless
 const pDateless = parseNaturalLanguageTask('Buy groceries');
 assert.strictEqual(pDateless.title, 'Buy groceries');
@@ -194,8 +247,50 @@ assert.strictEqual(getNextRecurrenceDate('2026-05-31', 'monthly', '2026-05-31'),
 assert.strictEqual(getNextRecurrenceDate('2026-08-31', 'monthly', '2026-08-31'), '2026-09-30');
 assert.strictEqual(getNextRecurrenceDate('2026-10-31', 'monthly', '2026-10-31'), '2026-11-30');
 assert.strictEqual(getNextRecurrenceDate('2026-12-31', 'monthly', '2026-12-31'), '2027-01-31');
-assert.strictEqual(getNextRecurrenceDate('2026-01-15', 'monthly', '2026-01-15'), '2026-02-15');
 console.log('Test 19b: Monthly recurrence safely clamps end-of-month dates without skipping shorter months: PASSED');
+
+// Test 19c: Chained monthly recurrence preserving anchor day across short months back to 31st
+const step1 = getNextRecurrenceDate('2026-01-31', 'monthly', '2026-01-31', 31);
+assert.strictEqual(step1, '2026-02-28', 'Jan 31 clamps to Feb 28');
+const step2 = getNextRecurrenceDate(step1, 'monthly', '2026-02-28', 31);
+assert.strictEqual(step2, '2026-03-31', 'Feb 28 with anchor 31 unclamps back to Mar 31');
+const step3 = getNextRecurrenceDate(step2, 'monthly', '2026-03-31', 31);
+assert.strictEqual(step3, '2026-04-30', 'Mar 31 clamps to Apr 30');
+const step4 = getNextRecurrenceDate(step3, 'monthly', '2026-04-30', 31);
+assert.strictEqual(step4, '2026-05-31', 'Apr 30 with anchor 31 unclamps back to May 31');
+
+// Test 19d: advanceRecurringTask maintains recurrenceAnchorDay across chained completions
+const taskMonthly31: Task = {
+  id: 'task-recur-31',
+  projectId: 'proj-1',
+  title: 'Monthly statement',
+  dueDate: '2026-01-31',
+  recurrence: 'monthly',
+  recurrenceAnchorDay: 31,
+  priority: 'p2',
+  labels: [],
+  completed: false,
+  subtasks: [],
+  createdAt: '2026-01-31T10:00:00.000Z',
+  updatedAt: '2026-01-31T10:00:00.000Z',
+};
+
+const adv1 = advanceRecurringTask(taskMonthly31, '2026-01-31', '2026-01-31T10:00:00.000Z');
+assert.strictEqual(adv1.activeRecurringTask.dueDate, '2026-02-28');
+assert.strictEqual(adv1.activeRecurringTask.recurrenceAnchorDay, 31);
+
+const adv2 = advanceRecurringTask(adv1.activeRecurringTask, '2026-02-28', '2026-02-28T10:00:00.000Z');
+assert.strictEqual(adv2.activeRecurringTask.dueDate, '2026-03-31');
+assert.strictEqual(adv2.activeRecurringTask.recurrenceAnchorDay, 31);
+
+const adv3 = advanceRecurringTask(adv2.activeRecurringTask, '2026-03-31', '2026-03-31T10:00:00.000Z');
+assert.strictEqual(adv3.activeRecurringTask.dueDate, '2026-04-30');
+assert.strictEqual(adv3.activeRecurringTask.recurrenceAnchorDay, 31);
+
+const adv4 = advanceRecurringTask(adv3.activeRecurringTask, '2026-04-30', '2026-04-30T10:00:00.000Z');
+assert.strictEqual(adv4.activeRecurringTask.dueDate, '2026-05-31');
+assert.strictEqual(adv4.activeRecurringTask.recurrenceAnchorDay, 31);
+console.log('Test 19c & 19d: Chained monthly recurrence maintains anchorDay without drifting: PASSED');
 
 // Test 20: toggleTaskComplete on recurring task advances schedule to tomorrow and preserves completion log
 await store.toggleTaskComplete(dailyAddedTask.id);

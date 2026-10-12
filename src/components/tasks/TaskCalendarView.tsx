@@ -46,8 +46,11 @@ export function isTaskScheduledOnDate(
       return startObj.getDay() === dateObj.getDay();
     }
     if (task.recurrence === 'monthly') {
-      const startDayNum = Number(startDate.split('-')[2]);
-      return Number(dateStr.split('-')[2]) === startDayNum;
+      const anchorDay = task.recurrenceAnchorDay ?? Number(startDate.split('-')[2]);
+      const [cy, cm, cd] = dateStr.split('-').map(Number);
+      const daysInMonth = new Date(cy, cm, 0).getDate();
+      const targetDay = Math.min(anchorDay, daysInMonth);
+      return cd === targetDay;
     }
   }
 
