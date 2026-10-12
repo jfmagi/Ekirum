@@ -9,6 +9,7 @@ import {
   LibraryItem,
 } from '../types';
 import { formatLocalDate } from './dateParser';
+import { MAX_LENGTHS } from './validation';
 
 /**
  * Strict schema sanitizers to protect IndexedDB and React from corrupted or poisoned objects.
@@ -20,8 +21,8 @@ export function sanitizeTask(raw: any): Task | null {
   const now = new Date().toISOString();
   return {
     id: String(raw.id).trim(),
-    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : 'Untitled Task',
-    notes: typeof raw.notes === 'string' ? raw.notes : undefined,
+    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim().slice(0, MAX_LENGTHS.TASK_TITLE) : 'Untitled Task',
+    notes: typeof raw.notes === 'string' ? raw.notes.slice(0, MAX_LENGTHS.TASK_NOTES) : undefined,
     projectId: typeof raw.projectId === 'string' && raw.projectId.trim() ? raw.projectId.trim() : undefined,
     priority: ['p1', 'p2', 'p3', 'p4'].includes(raw.priority) ? raw.priority : 'p4',
     dueDate: typeof raw.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.dueDate) ? raw.dueDate : undefined,
@@ -34,11 +35,11 @@ export function sanitizeTask(raw: any): Task | null {
           .filter((s: any) => s && typeof s === 'object' && typeof s.id === 'string' && typeof s.title === 'string')
           .map((s: any) => ({
             id: String(s.id),
-            title: String(s.title),
+            title: String(s.title).slice(0, MAX_LENGTHS.SUBTASK_TITLE),
             completed: Boolean(s.completed),
           }))
       : [],
-    labels: Array.isArray(raw.labels) ? raw.labels.filter((l: any) => typeof l === 'string' && l.trim()).map(String) : [],
+    labels: Array.isArray(raw.labels) ? raw.labels.filter((l: any) => typeof l === 'string' && l.trim()).map((l: any) => String(l).trim().slice(0, MAX_LENGTHS.LABEL)) : [],
     order: typeof raw.order === 'number' && !isNaN(raw.order) ? raw.order : 0,
     section: typeof raw.section === 'string' ? raw.section : undefined,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
@@ -55,11 +56,11 @@ export function sanitizeProject(raw: any): Project | null {
   const now = new Date().toISOString();
   return {
     id: String(raw.id).trim(),
-    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'Unnamed Project',
+    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, MAX_LENGTHS.PROJECT_NAME) : 'Unnamed Project',
     color: typeof raw.color === 'string' && raw.color.trim() ? raw.color.trim() : '#8B1528',
     icon: typeof raw.icon === 'string' && raw.icon.trim() ? raw.icon.trim() : 'Layers',
     skillId: typeof raw.skillId === 'string' && raw.skillId.trim() ? raw.skillId.trim() : `skill-${raw.id}`,
-    description: typeof raw.description === 'string' ? raw.description : undefined,
+    description: typeof raw.description === 'string' ? raw.description.slice(0, MAX_LENGTHS.PROJECT_DESCRIPTION) : undefined,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now,
     isDeleted: Boolean(raw.isDeleted),
@@ -74,7 +75,7 @@ export function sanitizeSkill(raw: any): Skill | null {
   const now = new Date().toISOString();
   return {
     id: String(raw.id).trim(),
-    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'Unnamed Skill',
+    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, MAX_LENGTHS.SKILL_NAME) : 'Unnamed Skill',
     level: typeof raw.level === 'number' && !isNaN(raw.level) && raw.level >= 1 ? Math.floor(raw.level) : 1,
     xp: typeof raw.xp === 'number' && !isNaN(raw.xp) && raw.xp >= 0 ? raw.xp : 0,
     xpToNextLevel: typeof raw.xpToNextLevel === 'number' && !isNaN(raw.xpToNextLevel) && raw.xpToNextLevel > 0 ? raw.xpToNextLevel : 100,
@@ -97,8 +98,8 @@ export function sanitizeHabit(raw: any): Habit | null {
   const now = new Date().toISOString();
   return {
     id: String(raw.id).trim(),
-    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : 'Unnamed Habit',
-    description: typeof raw.description === 'string' ? raw.description : undefined,
+    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim().slice(0, MAX_LENGTHS.HABIT_TITLE) : 'Unnamed Habit',
+    description: typeof raw.description === 'string' ? raw.description.slice(0, MAX_LENGTHS.HABIT_DESCRIPTION) : undefined,
     projectId: typeof raw.projectId === 'string' ? raw.projectId : undefined,
     frequency: ['daily', 'weekdays', 'weekly'].includes(raw.frequency) ? raw.frequency : 'daily',
     color: typeof raw.color === 'string' && raw.color.trim() ? raw.color.trim() : '#8B1528',
@@ -176,7 +177,7 @@ export function sanitizeUserProfile(raw: any): UserProfile | null {
 
   return {
     id: String(raw.id).trim(),
-    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'Novice',
+    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, MAX_LENGTHS.USER_NAME) : 'Novice',
     avatar: safeAvatar,
     ekirumLevel: safeLevel,
     ekirumRank: safeRank,
@@ -200,11 +201,11 @@ export function sanitizeLibraryItem(raw: any): LibraryItem | null {
   const status = raw.status === 'done' ? 'done' : 'todo';
   return {
     id: String(raw.id).trim(),
-    title: str(raw.title) || 'Untitled',
+    title: (str(raw.title) || 'Untitled').slice(0, MAX_LENGTHS.LIBRARY_TITLE),
     type: raw.type === 'movie' ? 'movie' : 'book',
-    creator: str(raw.creator),
+    creator: str(raw.creator) ? str(raw.creator)!.slice(0, MAX_LENGTHS.LIBRARY_CREATOR) : undefined,
     url: str(raw.url),
-    notes: typeof raw.notes === 'string' && raw.notes.trim() ? raw.notes : undefined,
+    notes: typeof raw.notes === 'string' && raw.notes.trim() ? raw.notes.slice(0, MAX_LENGTHS.LIBRARY_NOTES) : undefined,
     difficulty: raw.difficulty === 0 || raw.difficulty === 2 ? raw.difficulty : 1,
     projectId: str(raw.projectId),
     status,

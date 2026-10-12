@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { processAvatarImage } from '../../lib/avatarHelper';
+import { MAX_LENGTHS } from '../../lib/validation';
 import {
   ShieldCheck,
   Camera,
@@ -139,6 +140,7 @@ export const OnboardingModal: React.FC = () => {
                 <input
                   id="character-name-input"
                   type="text"
+                  maxLength={MAX_LENGTHS.USER_NAME}
                   autoFocus
                   value={name}
                   onChange={(e) => setName(e.target.value)}

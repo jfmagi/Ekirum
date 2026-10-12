@@ -18,6 +18,7 @@ import {
 import { DAILY_XP_CAP } from '../../types';
 import { formatLocalDate } from '../../lib/dateParser';
 import { getVisibleAchievements } from '../../lib/achievements';
+import { MAX_LENGTHS } from '../../lib/validation';
 
 export const CharacterView: React.FC = () => {
   const {
@@ -226,6 +227,7 @@ export const CharacterView: React.FC = () => {
                   <div className="flex items-center gap-1.5">
                     <input
                       type="text"
+                      maxLength={MAX_LENGTHS.USER_NAME}
                       autoFocus
                       value={userNameDraft}
                       onChange={(e) => setUserNameDraft(e.target.value)}

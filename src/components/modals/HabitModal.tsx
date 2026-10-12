@@ -3,6 +3,7 @@ import { useEkirumStore } from '../../store/useEkirumStore';
 import { IconHelper } from '../common/IconHelper';
 import { HabitFrequency } from '../../types';
 import { PROJECT_COLOR_OPTIONS } from '../../lib/projectColors';
+import { MAX_LENGTHS } from '../../lib/validation';
 import { X, Plus, Save, Trash2, Repeat, Folder, AlertTriangle } from 'lucide-react';
 
 const COLOR_OPTIONS = PROJECT_COLOR_OPTIONS;
@@ -156,6 +157,7 @@ export const HabitModal: React.FC = () => {
             <label className="text-xs font-medium text-stone-700">Habit Name</label>
             <input
               type="text"
+              maxLength={MAX_LENGTHS.HABIT_TITLE}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. 20-min morning walk, Daily journaling..."
@@ -169,6 +171,7 @@ export const HabitModal: React.FC = () => {
             <label className="text-xs font-medium text-stone-600">Intent & Context</label>
             <textarea
               rows={2}
+              maxLength={MAX_LENGTHS.HABIT_DESCRIPTION}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Why this ritual matters to you..."

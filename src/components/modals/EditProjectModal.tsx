@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { IconHelper } from '../common/IconHelper';
 import { PROJECT_COLOR_OPTIONS } from '../../lib/projectColors';
+import { MAX_LENGTHS } from '../../lib/validation';
 import { X, Save, Trash2, AlertTriangle } from 'lucide-react';
 
 const COLOR_OPTIONS = PROJECT_COLOR_OPTIONS;
@@ -115,6 +116,7 @@ export const EditProjectModal: React.FC = () => {
             <label className="text-xs font-medium text-stone-700">Project Name</label>
             <input
               type="text"
+              maxLength={MAX_LENGTHS.PROJECT_NAME}
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full text-base sm:text-xs font-sans px-3 py-2.5 sm:py-2 bg-stone-50 border border-stone-200 rounded-mac text-charcoal focus:bg-white focus:border-stone-400 focus:outline-none transition-colors placeholder-stone-500"
@@ -127,6 +129,7 @@ export const EditProjectModal: React.FC = () => {
             <label className="text-xs font-medium text-stone-700">Description</label>
             <textarea
               rows={2}
+              maxLength={MAX_LENGTHS.PROJECT_DESCRIPTION}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Purpose and focus of this discipline..."

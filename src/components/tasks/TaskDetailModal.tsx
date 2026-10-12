@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { Task, Priority, Recurrence } from '../../types';
+import { MAX_LENGTHS } from '../../lib/validation';
 import {
   X,
   Calendar,
@@ -114,6 +115,7 @@ export const TaskDetailModal: React.FC = () => {
           <div>
             <input
               type="text"
+              maxLength={MAX_LENGTHS.TASK_TITLE}
               value={task.title}
               onChange={(e) => updateTask(task.id, { title: e.target.value })}
               className="w-full font-serif text-xl font-medium text-charcoal border-0 border-b border-transparent hover:border-stone-200 focus:border-stone-400 focus:outline-none focus:ring-0 pb-1.5 transition-colors placeholder-stone-500"
@@ -221,6 +223,7 @@ export const TaskDetailModal: React.FC = () => {
             </label>
             <textarea
               rows={4}
+              maxLength={MAX_LENGTHS.TASK_NOTES}
               value={task.notes || ''}
               onChange={(e) => updateTask(task.id, { notes: e.target.value })}
               placeholder="Add detailed notes or requirements..."
@@ -274,6 +277,7 @@ export const TaskDetailModal: React.FC = () => {
             <form onSubmit={handleAddSubtaskSubmit} className="flex gap-2 pt-1">
               <input
                 type="text"
+                maxLength={MAX_LENGTHS.SUBTASK_TITLE}
                 value={newSubtaskTitle}
                 onChange={(e) => setNewSubtaskTitle(e.target.value)}
                 placeholder="Add subtask..."
@@ -316,6 +320,7 @@ export const TaskDetailModal: React.FC = () => {
               <form onSubmit={handleAddTag} className="inline-flex items-center">
                 <input
                   type="text"
+                  maxLength={MAX_LENGTHS.LABEL}
                   value={newTagInput}
                   onChange={(e) => setNewTagInput(e.target.value)}
                   placeholder="+ Label"

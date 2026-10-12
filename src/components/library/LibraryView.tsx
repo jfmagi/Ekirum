@@ -6,6 +6,7 @@ import {
   LIBRARY_TYPE_LABELS,
 } from '../../lib/library';
 import { formatLocalDate } from '../../lib/dateParser';
+import { MAX_LENGTHS } from '../../lib/validation';
 import {
   BookOpen,
   Film,
@@ -97,6 +98,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ initial, onSubmit, onCancel, submit
           <label className={labelClass} htmlFor="lib-title">Title</label>
           <input
             id="lib-title"
+            maxLength={MAX_LENGTHS.LIBRARY_TITLE}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder={type === 'book' ? 'e.g. The Name of the Rose' : 'e.g. Stalker'}
@@ -109,6 +111,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ initial, onSubmit, onCancel, submit
           <label className={labelClass} htmlFor="lib-creator">{type === 'book' ? 'Author' : 'Director'}</label>
           <input
             id="lib-creator"
+            maxLength={MAX_LENGTHS.LIBRARY_CREATOR}
             value={creator}
             onChange={(e) => setCreator(e.target.value)}
             placeholder="Optional"
@@ -173,6 +176,7 @@ const ItemForm: React.FC<ItemFormProps> = ({ initial, onSubmit, onCancel, submit
           <label className={labelClass} htmlFor="lib-notes">Notes</label>
           <input
             id="lib-notes"
+            maxLength={MAX_LENGTHS.LIBRARY_NOTES}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Why it's on the list (optional)"
@@ -216,6 +220,7 @@ const FinishForm: React.FC<{
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2.5">
         <textarea
           value={review}
+          maxLength={MAX_LENGTHS.LIBRARY_NOTES}
           onChange={(e) => setReview(e.target.value)}
           rows={2}
           placeholder="A short review (optional)"

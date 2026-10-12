@@ -40,6 +40,7 @@ import {
   maybeBackupAndSync,
   BackupStatus,
 } from '../lib/backupService';
+import { MAX_LENGTHS, clampString } from '../lib/validation';
 
 
 export function calculateHabitStreak(completedDates: string[]): { current: number; longest: number } {
@@ -440,7 +441,7 @@ export const useEkirumStore = create<EkirumStore>()(
       setOnboardingModalOpen: (open) => set({ onboardingModalOpen: open }),
 
       completeOnboarding: async (name: string, avatar?: string) => {
-        const trimmedName = name.trim() || 'Ekirum';
+        const trimmedName = clampString(name.trim() || 'Ekirum', MAX_LENGTHS.USER_NAME, 'Ekirum');
         const updates: Partial<UserProfile> = {
           name: trimmedName,
           onboardingCompleted: true,
@@ -518,9 +519,13 @@ export const useEkirumStore = create<EkirumStore>()(
 
       updateUserProfile: (updates) => {
         const current = get().user;
+        const sanitizedUpdates = { ...updates };
+        if (sanitizedUpdates.name !== undefined) {
+          sanitizedUpdates.name = clampString(sanitizedUpdates.name.trim() || 'Novice', MAX_LENGTHS.USER_NAME, 'Novice');
+        }
         const updatedUser: UserProfile = {
           ...current,
-          ...updates,
+          ...sanitizedUpdates,
           updatedAt: new Date().toISOString(),
         };
         set({ user: updatedUser });
@@ -689,13 +694,13 @@ export const useEkirumStore = create<EkirumStore>()(
         const newTask: Task = {
           id: generateUuid('task'),
           projectId: defaultProjectId,
-          title: data.title.trim(),
-          notes: data.notes || '',
+          title: clampString(data.title.trim(), MAX_LENGTHS.TASK_TITLE, 'Untitled Task'),
+          notes: data.notes ? clampString(data.notes, MAX_LENGTHS.TASK_NOTES) : '',
           dueDate: effectiveDueDate,
           dueTime: data.dueTime,
           recurrence: data.recurrence || 'none',
           priority: data.priority || 'p4',
-          labels: data.labels || [],
+          labels: (data.labels || []).map((l) => clampString(l.trim(), MAX_LENGTHS.LABEL)).filter(Boolean),
           completed: false,
           createdAt: now,
           updatedAt: now,
@@ -715,7 +720,17 @@ export const useEkirumStore = create<EkirumStore>()(
 
       updateTask: (id, updates) => {
         const now = new Date().toISOString();
-        const updatedTask = { ...updates, updatedAt: now };
+        const sanitizedUpdates: Partial<Task> = { ...updates };
+        if (sanitizedUpdates.title !== undefined) {
+          sanitizedUpdates.title = clampString(sanitizedUpdates.title.trim(), MAX_LENGTHS.TASK_TITLE, 'Untitled Task');
+        }
+        if (sanitizedUpdates.notes !== undefined) {
+          sanitizedUpdates.notes = clampString(sanitizedUpdates.notes, MAX_LENGTHS.TASK_NOTES);
+        }
+        if (sanitizedUpdates.labels !== undefined) {
+          sanitizedUpdates.labels = sanitizedUpdates.labels.map((l) => clampString(l.trim(), MAX_LENGTHS.LABEL)).filter(Boolean);
+        }
+        const updatedTask = { ...sanitizedUpdates, updatedAt: now };
 
         // If recurrence is being assigned to a dateless task, auto-assign today as initial schedule
         if (updates.recurrence && updates.recurrence !== 'none') {
@@ -1059,7 +1074,7 @@ export const useEkirumStore = create<EkirumStore>()(
         const now = new Date().toISOString();
         const newSubtask = {
           id: generateUuid('sub'),
-          title,
+          title: clampString(title.trim(), MAX_LENGTHS.SUBTASK_TITLE, 'Subtask'),
           completed: false,
         };
 
@@ -1093,11 +1108,13 @@ export const useEkirumStore = create<EkirumStore>()(
         const now = new Date().toISOString();
         const projectId = generateUuid('proj');
         const skillId = generateUuid('skill');
+        const sanitizedName = clampString(name.trim(), MAX_LENGTHS.PROJECT_NAME, 'Unnamed Project');
+        const sanitizedDesc = description ? clampString(description.trim(), MAX_LENGTHS.PROJECT_DESCRIPTION) : undefined;
 
         const newSkill: Skill = {
           id: skillId,
           projectId,
-          name,
+          name: sanitizedName,
           level: 1,
           xp: 0,
           xpToNextLevel: 20,
@@ -1111,11 +1128,11 @@ export const useEkirumStore = create<EkirumStore>()(
 
         const newProject: Project = {
           id: projectId,
-          name,
+          name: sanitizedName,
           color,
           icon,
           skillId,
-          description,
+          description: sanitizedDesc,
           createdAt: now,
           updatedAt: now,
           isDeleted: false,
@@ -1187,9 +1204,17 @@ export const useEkirumStore = create<EkirumStore>()(
 
       updateProject: (id, updates) => {
         const now = new Date().toISOString();
+        const sanitizedUpdates: Partial<Project> = { ...updates };
+        if (sanitizedUpdates.name !== undefined) {
+          sanitizedUpdates.name = clampString(sanitizedUpdates.name.trim(), MAX_LENGTHS.PROJECT_NAME, 'Unnamed Project');
+        }
+        if (sanitizedUpdates.description !== undefined) {
+          sanitizedUpdates.description = clampString(sanitizedUpdates.description.trim(), MAX_LENGTHS.PROJECT_DESCRIPTION);
+        }
+
         set((state) => {
           const updatedProjects = state.projects.map((p) =>
-            p.id === id ? { ...p, ...updates, updatedAt: now } : p
+            p.id === id ? { ...p, ...sanitizedUpdates, updatedAt: now } : p
           );
 
           const targetProject = updatedProjects.find((p) => p.id === id);
@@ -1200,8 +1225,8 @@ export const useEkirumStore = create<EkirumStore>()(
               if (s.id === targetProject.skillId) {
                 const updatedSkill = {
                   ...s,
-                  name: updates.name !== undefined ? updates.name : s.name,
-                  icon: updates.icon !== undefined ? updates.icon : s.icon,
+                  name: sanitizedUpdates.name !== undefined ? sanitizedUpdates.name : s.name,
+                  icon: sanitizedUpdates.icon !== undefined ? sanitizedUpdates.icon : s.icon,
                   updatedAt: now,
                 };
                 db.skills.put(updatedSkill).catch(saveCatch('updating project skill'));
@@ -1209,7 +1234,7 @@ export const useEkirumStore = create<EkirumStore>()(
               }
               return s;
             });
-            db.projects.update(id, { ...updates, updatedAt: now }).catch(saveCatch('updating project'));
+            db.projects.update(id, { ...sanitizedUpdates, updatedAt: now }).catch(saveCatch('updating project'));
           }
 
           const { updatedAchievements, hasChanges } = evaluateAchievements(
@@ -1281,18 +1306,22 @@ export const useEkirumStore = create<EkirumStore>()(
 
       updateSkill: (id, updates) => {
         const now = new Date().toISOString();
+        const sanitizedUpdates: Partial<Skill> = { ...updates };
+        if (sanitizedUpdates.name !== undefined) {
+          sanitizedUpdates.name = clampString(sanitizedUpdates.name.trim(), MAX_LENGTHS.SKILL_NAME, 'Unnamed Skill');
+        }
         set((state) => ({
-          skills: state.skills.map((s) => (s.id === id ? { ...s, ...updates, updatedAt: now } : s)),
+          skills: state.skills.map((s) => (s.id === id ? { ...s, ...sanitizedUpdates, updatedAt: now } : s)),
         }));
-        db.skills.update(id, { ...updates, updatedAt: now }).catch(saveCatch('updating skill'));
+        db.skills.update(id, { ...sanitizedUpdates, updatedAt: now }).catch(saveCatch('updating skill'));
       },
 
       addHabit: (data) => {
         const now = new Date().toISOString();
         const newHabit: Habit = {
           id: generateUuid('habit'),
-          title: data.title.trim(),
-          description: data.description?.trim(),
+          title: clampString(data.title.trim(), MAX_LENGTHS.HABIT_TITLE, 'Unnamed Habit'),
+          description: data.description ? clampString(data.description.trim(), MAX_LENGTHS.HABIT_DESCRIPTION) : undefined,
           projectId: data.projectId,
           frequency: data.frequency || 'daily',
           completedDates: [],
@@ -1540,11 +1569,19 @@ export const useEkirumStore = create<EkirumStore>()(
 
       updateHabit: (id, updates) => {
         const now = new Date().toISOString();
+        const sanitizedUpdates: Partial<Habit> = { ...updates };
+        if (sanitizedUpdates.title !== undefined) {
+          sanitizedUpdates.title = clampString(sanitizedUpdates.title.trim(), MAX_LENGTHS.HABIT_TITLE, 'Unnamed Habit');
+        }
+        if (sanitizedUpdates.description !== undefined) {
+          sanitizedUpdates.description = clampString(sanitizedUpdates.description.trim(), MAX_LENGTHS.HABIT_DESCRIPTION);
+        }
+
         set((state) => ({
-          habits: state.habits.map((h) => (h.id === id ? { ...h, ...updates, updatedAt: now } : h)),
+          habits: state.habits.map((h) => (h.id === id ? { ...h, ...sanitizedUpdates, updatedAt: now } : h)),
           editingHabitId: null,
         }));
-        db.habits.update(id, { ...updates, updatedAt: now }).catch(saveCatch('updating habit'));
+        db.habits.update(id, { ...sanitizedUpdates, updatedAt: now }).catch(saveCatch('updating habit'));
       },
 
       deleteHabit: (id) => {
@@ -1560,11 +1597,11 @@ export const useEkirumStore = create<EkirumStore>()(
         const now = new Date().toISOString();
         const newItem: LibraryItem = {
           id: generateUuid('lib'),
-          title: data.title.trim(),
+          title: clampString(data.title.trim(), MAX_LENGTHS.LIBRARY_TITLE, 'Untitled'),
           type: data.type,
-          creator: data.creator?.trim() || undefined,
+          creator: data.creator ? clampString(data.creator.trim(), MAX_LENGTHS.LIBRARY_CREATOR) : undefined,
           url: data.url?.trim() || undefined,
-          notes: data.notes?.trim() || undefined,
+          notes: data.notes ? clampString(data.notes.trim(), MAX_LENGTHS.LIBRARY_NOTES) : undefined,
           difficulty: data.difficulty ?? 1,
           projectId: data.projectId || undefined,
           status: 'todo',
@@ -1581,10 +1618,21 @@ export const useEkirumStore = create<EkirumStore>()(
 
       updateLibraryItem: (id, updates) => {
         const now = new Date().toISOString();
+        const sanitizedUpdates: Partial<LibraryItem> = { ...updates };
+        if (sanitizedUpdates.title !== undefined) {
+          sanitizedUpdates.title = clampString(sanitizedUpdates.title.trim(), MAX_LENGTHS.LIBRARY_TITLE, 'Untitled');
+        }
+        if (sanitizedUpdates.creator !== undefined) {
+          sanitizedUpdates.creator = clampString(sanitizedUpdates.creator.trim(), MAX_LENGTHS.LIBRARY_CREATOR);
+        }
+        if (sanitizedUpdates.notes !== undefined) {
+          sanitizedUpdates.notes = clampString(sanitizedUpdates.notes.trim(), MAX_LENGTHS.LIBRARY_NOTES);
+        }
+
         set((state) => ({
-          libraryItems: state.libraryItems.map((i) => (i.id === id ? { ...i, ...updates, updatedAt: now } : i)),
+          libraryItems: state.libraryItems.map((i) => (i.id === id ? { ...i, ...sanitizedUpdates, updatedAt: now } : i)),
         }));
-        db.libraryItems.update(id, { ...updates, updatedAt: now }).catch(saveCatch('updating library item'));
+        db.libraryItems.update(id, { ...sanitizedUpdates, updatedAt: now }).catch(saveCatch('updating library item'));
       },
 
       deleteLibraryItem: (id) => {

@@ -8,6 +8,7 @@ import {
   NumberingStyle,
 } from '../../lib/taskSyntax';
 import { Priority, Recurrence } from '../../types';
+import { MAX_LENGTHS } from '../../lib/validation';
 import {
   Calendar,
   Clock,
@@ -305,6 +306,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
           <input
             ref={inputRef}
             type="text"
+            maxLength={MAX_LENGTHS.TASK_TITLE}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onScroll={handleInputScroll}
