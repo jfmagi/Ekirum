@@ -22,6 +22,8 @@ import { OnboardingModal } from './components/modals/OnboardingModal';
 import { SyncBanner } from './components/common/SyncBanner';
 import { X, AlertTriangle } from 'lucide-react';
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const App: React.FC = () => {
   const {
     currentView,
@@ -39,7 +41,43 @@ export const App: React.FC = () => {
     refreshBackupStatus,
     storageError,
     clearStorageError,
-  } = useEkirumStore();
+    taskDetailId,
+    newProjectModalOpen,
+    editingProjectId,
+    newHabitModalOpen,
+    editingHabitId,
+    backupModalOpen,
+    celebration,
+    helpModalOpen,
+    onboardingModalOpen,
+  } = useEkirumStore(
+    useShallow((s) => ({
+      currentView: s.currentView,
+      displayMode: s.displayMode,
+      quickAddOpen: s.quickAddOpen,
+      quickAddDefaultDate: s.quickAddDefaultDate,
+      deletedTaskToast: s.deletedTaskToast,
+      undoDeleteTask: s.undoDeleteTask,
+      dismissDeletedTaskToast: s.dismissDeletedTaskToast,
+      setQuickAddOpen: s.setQuickAddOpen,
+      setHelpModalOpen: s.setHelpModalOpen,
+      setCurrentView: s.setCurrentView,
+      initStorage: s.initStorage,
+      triggerBackupAndSync: s.triggerBackupAndSync,
+      refreshBackupStatus: s.refreshBackupStatus,
+      storageError: s.storageError,
+      clearStorageError: s.clearStorageError,
+      taskDetailId: s.taskDetailId,
+      newProjectModalOpen: s.newProjectModalOpen,
+      editingProjectId: s.editingProjectId,
+      newHabitModalOpen: s.newHabitModalOpen,
+      editingHabitId: s.editingHabitId,
+      backupModalOpen: s.backupModalOpen,
+      celebration: s.celebration,
+      helpModalOpen: s.helpModalOpen,
+      onboardingModalOpen: s.onboardingModalOpen,
+    }))
+  );
 
   // Storage Initialization & Automated Sync Lifecycle
   useEffect(() => {
@@ -212,31 +250,31 @@ export const App: React.FC = () => {
       )}
 
       {/* Detail Slide-over / Modal */}
-      <TaskDetailModal />
+      {taskDetailId && <TaskDetailModal />}
 
       {/* Command Palette (Cmd+K) */}
       <CommandPalette />
 
       {/* Project & Linked Skill Modal */}
-      <NewProjectModal />
+      {newProjectModalOpen && <NewProjectModal />}
 
       {/* Edit Project Modal */}
-      <EditProjectModal />
+      {editingProjectId && <EditProjectModal />}
 
       {/* Habit Creation & Editing Modal */}
-      <HabitModal />
+      {(newHabitModalOpen || editingHabitId) && <HabitModal />}
 
       {/* Local Storage & Backup Modal */}
-      <BackupModal />
+      {backupModalOpen && <BackupModal />}
 
       {/* Celebration & Level-Up Modal */}
-      <CelebrationModal />
+      {celebration && <CelebrationModal />}
 
       {/* System Guide & Syntax Reference Modal */}
-      <HelpModal />
+      {helpModalOpen && <HelpModal />}
 
       {/* First-Time Welcome & Character Setup Modal */}
-      <OnboardingModal />
+      {onboardingModalOpen && <OnboardingModal />}
     </div>
   );
 };

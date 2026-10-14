@@ -6,6 +6,8 @@ import { Task } from '../../types';
 import { Calendar, Edit3 } from 'lucide-react';
 import { formatLocalDate } from '../../lib/dateParser';
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const TaskTimelineView: React.FC = () => {
   const {
     tasks,
@@ -16,7 +18,18 @@ export const TaskTimelineView: React.FC = () => {
     selectedLabelFilter,
     searchQuery,
     setEditingProjectId,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      tasks: s.tasks,
+      projects: s.projects,
+      currentView: s.currentView,
+      selectedProjectId: s.selectedProjectId,
+      selectedPriorityFilter: s.selectedPriorityFilter,
+      selectedLabelFilter: s.selectedLabelFilter,
+      searchQuery: s.searchQuery,
+      setEditingProjectId: s.setEditingProjectId,
+    }))
+  );
 
   const now = new Date();
   const todayStr = formatLocalDate(now);

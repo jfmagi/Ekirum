@@ -3,7 +3,8 @@ import { useEkirumStore } from '../../store/useEkirumStore';
 import { Sparkles, Award, X } from 'lucide-react';
 
 export const CelebrationModal: React.FC = () => {
-  const { celebration, dismissCelebration } = useEkirumStore();
+  const celebration = useEkirumStore((s) => s.celebration);
+  const dismissCelebration = useEkirumStore((s) => s.dismissCelebration);
 
   useEffect(() => {
     if (!celebration) return;

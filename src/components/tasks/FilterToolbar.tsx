@@ -3,6 +3,8 @@ import { useEkirumStore } from '../../store/useEkirumStore';
 import { Priority } from '../../types';
 import { Filter, X, LayoutList, Clock } from 'lucide-react';
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const FilterToolbar: React.FC = () => {
   const {
     tasks,
@@ -16,7 +18,21 @@ export const FilterToolbar: React.FC = () => {
     displayMode,
     setDisplayMode,
     currentView,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      tasks: s.tasks,
+      projects: s.projects,
+      selectedPriorityFilter: s.selectedPriorityFilter,
+      setPriorityFilter: s.setPriorityFilter,
+      selectedLabelFilter: s.selectedLabelFilter,
+      setLabelFilter: s.setLabelFilter,
+      selectedProjectFilter: s.selectedProjectFilter,
+      setProjectFilter: s.setProjectFilter,
+      displayMode: s.displayMode,
+      setDisplayMode: s.setDisplayMode,
+      currentView: s.currentView,
+    }))
+  );
 
   const [isOpen, setIsOpen] = useState(false);
 

@@ -6,7 +6,10 @@ import { MAX_LENGTHS } from '../../lib/validation';
 import { X, Plus } from 'lucide-react';
 
 export const NewProjectModal: React.FC = () => {
-  const { newProjectModalOpen, setNewProjectModalOpen, createProject, setCurrentView } = useEkirumStore();
+  const newProjectModalOpen = useEkirumStore((s) => s.newProjectModalOpen);
+  const setNewProjectModalOpen = useEkirumStore((s) => s.setNewProjectModalOpen);
+  const createProject = useEkirumStore((s) => s.createProject);
+  const setCurrentView = useEkirumStore((s) => s.setCurrentView);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');

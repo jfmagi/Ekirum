@@ -57,6 +57,8 @@ export function isTaskScheduledOnDate(
   return false;
 }
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const TaskCalendarView: React.FC = () => {
   const {
     tasks,
@@ -70,7 +72,21 @@ export const TaskCalendarView: React.FC = () => {
     toggleTaskComplete,
     openTaskDetail,
     setQuickAddOpen,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      tasks: s.tasks,
+      currentView: s.currentView,
+      selectedProjectId: s.selectedProjectId,
+      searchQuery: s.searchQuery,
+      selectedPriorityFilter: s.selectedPriorityFilter,
+      selectedLabelFilter: s.selectedLabelFilter,
+      updateTask: s.updateTask,
+      addTask: s.addTask,
+      toggleTaskComplete: s.toggleTaskComplete,
+      openTaskDetail: s.openTaskDetail,
+      setQuickAddOpen: s.setQuickAddOpen,
+    }))
+  );
 
   const today = useMemo(() => new Date(), []);
   const todayStr = useMemo(() => {

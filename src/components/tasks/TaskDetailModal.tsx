@@ -14,6 +14,8 @@ import {
   Tag,
 } from 'lucide-react';
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const TaskDetailModal: React.FC = () => {
   const {
     taskDetailId,
@@ -25,7 +27,19 @@ export const TaskDetailModal: React.FC = () => {
     addSubtask,
     toggleSubtask,
     deleteSubtask,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      taskDetailId: s.taskDetailId,
+      openTaskDetail: s.openTaskDetail,
+      tasks: s.tasks,
+      updateTask: s.updateTask,
+      deleteTask: s.deleteTask,
+      projects: s.projects,
+      addSubtask: s.addSubtask,
+      toggleSubtask: s.toggleSubtask,
+      deleteSubtask: s.deleteSubtask,
+    }))
+  );
 
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [newTagInput, setNewTagInput] = useState('');

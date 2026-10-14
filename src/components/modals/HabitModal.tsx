@@ -23,6 +23,8 @@ const ICON_OPTIONS = [
   'Code',
 ];
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const HabitModal: React.FC = () => {
   const {
     newHabitModalOpen,
@@ -34,7 +36,19 @@ export const HabitModal: React.FC = () => {
     addHabit,
     updateHabit,
     deleteHabit,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      newHabitModalOpen: s.newHabitModalOpen,
+      setNewHabitModalOpen: s.setNewHabitModalOpen,
+      editingHabitId: s.editingHabitId,
+      setEditingHabitId: s.setEditingHabitId,
+      habits: s.habits,
+      projects: s.projects,
+      addHabit: s.addHabit,
+      updateHabit: s.updateHabit,
+      deleteHabit: s.deleteHabit,
+    }))
+  );
 
   const isEditing = Boolean(editingHabitId);
   const editingHabit = habits.find((h) => h.id === editingHabitId);

@@ -12,6 +12,8 @@ const ICON_OPTIONS = [
   'Bookmark', 'Briefcase', 'FileText', 'Heart', 'Code', 'Globe',
 ];
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const EditProjectModal: React.FC = () => {
   const {
     editingProjectId,
@@ -21,7 +23,17 @@ export const EditProjectModal: React.FC = () => {
     updateProject,
     deleteProject,
     setCurrentView,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      editingProjectId: s.editingProjectId,
+      setEditingProjectId: s.setEditingProjectId,
+      projects: s.projects,
+      tasks: s.tasks,
+      updateProject: s.updateProject,
+      deleteProject: s.deleteProject,
+      setCurrentView: s.setCurrentView,
+    }))
+  );
 
   const project = projects.find((p) => p.id === editingProjectId);
 

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { RefreshCw, X, FolderSync, Clock } from 'lucide-react';
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const SyncBanner: React.FC = () => {
   const {
     backupStatus,
@@ -9,7 +11,15 @@ export const SyncBanner: React.FC = () => {
     triggerBackupAndSync,
     setBackupModalOpen,
     isSyncing,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      backupStatus: s.backupStatus,
+      reconnectBackupFolder: s.reconnectBackupFolder,
+      triggerBackupAndSync: s.triggerBackupAndSync,
+      setBackupModalOpen: s.setBackupModalOpen,
+      isSyncing: s.isSyncing,
+    }))
+  );
 
   const [dismissed, setDismissed] = useState(false);
 

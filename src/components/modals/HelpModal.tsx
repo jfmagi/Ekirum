@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 
 export const HelpModal: React.FC = () => {
-  const { helpModalOpen, setHelpModalOpen } = useEkirumStore();
+  const helpModalOpen = useEkirumStore((s) => s.helpModalOpen);
+  const setHelpModalOpen = useEkirumStore((s) => s.setHelpModalOpen);
   const [activeTab, setActiveTab] = useState<'priorities' | 'syntax' | 'skills' | 'shortcuts' | 'install'>('priorities');
 
   const close = () => {

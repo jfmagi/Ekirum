@@ -14,7 +14,8 @@ import {
 import { formatLocalDate } from '../../lib/dateParser';
 
 export const HabitTrackerView: React.FC = () => {
-  const { habits, setNewHabitModalOpen } = useEkirumStore();
+  const habits = useEkirumStore((s) => s.habits);
+  const setNewHabitModalOpen = useEkirumStore((s) => s.setNewHabitModalOpen);
 
   // Offset in weeks from current week (0 = current week, -1 = last week, etc.)
   const [weekOffset, setWeekOffset] = useState(0);

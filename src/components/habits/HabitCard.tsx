@@ -10,11 +10,15 @@ interface HabitCardProps {
   weekDates: { dateStr: string; dayName: string; dayNumber: number; isToday: boolean }[];
 }
 
-export const HabitCard: React.FC<HabitCardProps> = ({ habit, weekDates }) => {
-  const { toggleHabitDate, setEditingHabitId, projects, skills } = useEkirumStore();
-
-  const linkedProject = projects.find((p) => p.id === habit.projectId);
-  const linkedSkill = linkedProject ? skills.find((s) => s.id === linkedProject.skillId) : null;
+export const HabitCard: React.FC<HabitCardProps> = React.memo(({ habit, weekDates }) => {
+  const toggleHabitDate = useEkirumStore((s) => s.toggleHabitDate);
+  const setEditingHabitId = useEkirumStore((s) => s.setEditingHabitId);
+  const linkedProject = useEkirumStore((s) =>
+    habit.projectId ? s.projects.find((p) => p.id === habit.projectId) : undefined
+  );
+  const linkedSkill = useEkirumStore((s) =>
+    linkedProject ? s.skills.find((sk) => sk.id === linkedProject.skillId) : null
+  );
 
   const todayStr = formatLocalDate(new Date());
   const isCompletedToday = habit.completedDates.includes(todayStr);
@@ -165,4 +169,4 @@ export const HabitCard: React.FC<HabitCardProps> = ({ habit, weekDates }) => {
       </div>
     </div>
   );
-};
+});

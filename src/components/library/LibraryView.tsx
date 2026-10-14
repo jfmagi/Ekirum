@@ -259,6 +259,8 @@ const FinishForm: React.FC<{
 const iconButton =
   'min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] flex items-center justify-center text-stone-500 hover:text-charcoal hover:bg-stone-100 rounded-mac transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none';
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const LibraryView: React.FC = () => {
   const {
     libraryItems,
@@ -268,7 +270,17 @@ export const LibraryView: React.FC = () => {
     deleteLibraryItem,
     completeLibraryItem,
     reopenLibraryItem,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      libraryItems: s.libraryItems,
+      projects: s.projects,
+      addLibraryItem: s.addLibraryItem,
+      updateLibraryItem: s.updateLibraryItem,
+      deleteLibraryItem: s.deleteLibraryItem,
+      completeLibraryItem: s.completeLibraryItem,
+      reopenLibraryItem: s.reopenLibraryItem,
+    }))
+  );
 
   const [tab, setTab] = useState<Tab>('queue');
   const [filter, setFilter] = useState<TypeFilter>('all');

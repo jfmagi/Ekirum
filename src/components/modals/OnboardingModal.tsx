@@ -10,11 +10,9 @@ import {
 } from 'lucide-react';
 
 export const OnboardingModal: React.FC = () => {
-  const {
-    onboardingModalOpen,
-    completeOnboarding,
-    user,
-  } = useEkirumStore();
+  const onboardingModalOpen = useEkirumStore((s) => s.onboardingModalOpen);
+  const completeOnboarding = useEkirumStore((s) => s.completeOnboarding);
+  const user = useEkirumStore((s) => s.user);
 
   const [name, setName] = useState(user.name === 'Ekirum' ? '' : user.name);
   const [avatar, setAvatar] = useState<string | undefined>(user.avatar);

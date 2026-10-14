@@ -16,6 +16,8 @@ import {
 import { ViewType } from '../../types';
 import { formatLocalDate } from '../../lib/dateParser';
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const Sidebar: React.FC = () => {
   const {
     currentView,
@@ -31,7 +33,23 @@ export const Sidebar: React.FC = () => {
     setBackupModalOpen,
     mobileSidebarOpen,
     setMobileSidebarOpen,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      currentView: s.currentView,
+      selectedProjectId: s.selectedProjectId,
+      setCurrentView: s.setCurrentView,
+      tasks: s.tasks,
+      projects: s.projects,
+      habits: s.habits,
+      libraryItems: s.libraryItems,
+      user: s.user,
+      setNewProjectModalOpen: s.setNewProjectModalOpen,
+      setHelpModalOpen: s.setHelpModalOpen,
+      setBackupModalOpen: s.setBackupModalOpen,
+      mobileSidebarOpen: s.mobileSidebarOpen,
+      setMobileSidebarOpen: s.setMobileSidebarOpen,
+    }))
+  );
 
   const todayStr = formatLocalDate();
 

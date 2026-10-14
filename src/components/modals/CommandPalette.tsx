@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
+import { useShallow } from 'zustand/react/shallow';
 import {
   Search,
   CheckCircle2,
@@ -16,10 +17,21 @@ import {
   BookOpen,
 } from 'lucide-react';
 
-export const CommandPalette: React.FC = () => {
+type PaletteItem = {
+  id: string;
+  type: 'nav' | 'action' | 'project' | 'task';
+  title: string;
+  subtitle?: string;
+  icon: React.ReactNode;
+  action: () => void;
+};
+
+interface CommandPaletteDialogProps {
+  onClose: () => void;
+}
+
+const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({ onClose }) => {
   const {
-    commandPaletteOpen,
-    setCommandPaletteOpen,
     setCurrentView,
     projects,
     tasks,
@@ -31,7 +43,21 @@ export const CommandPalette: React.FC = () => {
     setBackupModalOpen,
     setHelpModalOpen,
     toggleSound,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      setCurrentView: s.setCurrentView,
+      projects: s.projects,
+      tasks: s.tasks,
+      habits: s.habits,
+      openTaskDetail: s.openTaskDetail,
+      setQuickAddOpen: s.setQuickAddOpen,
+      setNewProjectModalOpen: s.setNewProjectModalOpen,
+      setNewHabitModalOpen: s.setNewHabitModalOpen,
+      setBackupModalOpen: s.setBackupModalOpen,
+      setHelpModalOpen: s.setHelpModalOpen,
+      toggleSound: s.toggleSound,
+    }))
+  );
 
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -39,149 +65,144 @@ export const CommandPalette: React.FC = () => {
   const selectedItemRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (commandPaletteOpen) {
-      setQuery('');
-      setSelectedIndex(0);
-      const timer = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [commandPaletteOpen]);
+    inputRef.current?.focus();
+  }, []);
 
-  // Items to search through
-  type PaletteItem = {
-    id: string;
-    type: 'nav' | 'action' | 'project' | 'task';
-    title: string;
-    subtitle?: string;
-    icon: React.ReactNode;
-    action: () => void;
-  };
-
-  const navItems: PaletteItem[] = [
-    {
-      id: 'nav-today',
-      type: 'nav',
-      title: "Go to Now o'clock",
-      subtitle: 'View tasks due now and today',
-      icon: <Calendar size={14} className="text-crimson" />,
-      action: () => {
-        setCurrentView('today');
-        setCommandPaletteOpen(false);
+  const navItems: PaletteItem[] = useMemo(
+    () => [
+      {
+        id: 'nav-today',
+        type: 'nav',
+        title: "Go to Now o'clock",
+        subtitle: 'View tasks due now and today',
+        icon: <Calendar size={14} className="text-crimson" />,
+        action: () => {
+          setCurrentView('today');
+          onClose();
+        },
       },
-    },
-    {
-      id: 'nav-calendar',
-      type: 'nav',
-      title: 'Go to Calendar',
-      subtitle: 'View interactive calendar & schedule of tasks',
-      icon: <CalendarDays size={14} className="text-stone-500" />,
-      action: () => {
-        setCurrentView('calendar');
-        setCommandPaletteOpen(false);
+      {
+        id: 'nav-calendar',
+        type: 'nav',
+        title: 'Go to Calendar',
+        subtitle: 'View interactive calendar & schedule of tasks',
+        icon: <CalendarDays size={14} className="text-stone-500" />,
+        action: () => {
+          setCurrentView('calendar');
+          onClose();
+        },
       },
-    },
-    {
-      id: 'nav-habits',
-      type: 'nav',
-      title: 'Go to Habits',
-      subtitle: 'View daily rituals, streaks, and cadence',
-      icon: <Repeat size={14} className="text-stone-500" />,
-      action: () => {
-        setCurrentView('habits');
-        setCommandPaletteOpen(false);
+      {
+        id: 'nav-habits',
+        type: 'nav',
+        title: 'Go to Habits',
+        subtitle: 'View daily rituals, streaks, and cadence',
+        icon: <Repeat size={14} className="text-stone-500" />,
+        action: () => {
+          setCurrentView('habits');
+          onClose();
+        },
       },
-    },
-    {
-      id: 'nav-library',
-      type: 'nav',
-      title: 'Go to Library',
-      subtitle: 'Reading list, watchlist, and gallery of finished items',
-      icon: <BookOpen size={14} className="text-stone-500" />,
-      action: () => {
-        setCurrentView('library');
-        setCommandPaletteOpen(false);
+      {
+        id: 'nav-library',
+        type: 'nav',
+        title: 'Go to Library',
+        subtitle: 'Reading list, watchlist, and gallery of finished items',
+        icon: <BookOpen size={14} className="text-stone-500" />,
+        action: () => {
+          setCurrentView('library');
+          onClose();
+        },
       },
-    },
-    {
-      id: 'nav-character',
-      type: 'nav',
-      title: 'Go to Character',
-      subtitle: 'View skills, levels, and achievements',
-      icon: <User size={14} className="text-gold" />,
-      action: () => {
-        setCurrentView('character');
-        setCommandPaletteOpen(false);
+      {
+        id: 'nav-character',
+        type: 'nav',
+        title: 'Go to Character',
+        subtitle: 'View skills, levels, and achievements',
+        icon: <User size={14} className="text-gold" />,
+        action: () => {
+          setCurrentView('character');
+          onClose();
+        },
       },
-    },
-    {
-      id: 'act-new-task',
-      type: 'action',
-      title: 'New Task',
-      subtitle: 'Open task creation bar',
-      icon: <Plus size={14} className="text-crimson" />,
-      action: () => {
-        setCommandPaletteOpen(false);
-        setQuickAddOpen(true);
+      {
+        id: 'act-new-task',
+        type: 'action',
+        title: 'New Task',
+        subtitle: 'Open task creation bar',
+        icon: <Plus size={14} className="text-crimson" />,
+        action: () => {
+          onClose();
+          setQuickAddOpen(true);
+        },
       },
-    },
-    {
-      id: 'act-new-habit',
-      type: 'action',
-      title: 'New Habit',
-      subtitle: 'Create a new daily cadence or ritual',
-      icon: <Plus size={14} className="text-stone-600" />,
-      action: () => {
-        setCommandPaletteOpen(false);
-        setNewHabitModalOpen(true);
+      {
+        id: 'act-new-habit',
+        type: 'action',
+        title: 'New Habit',
+        subtitle: 'Create a new daily cadence or ritual',
+        icon: <Plus size={14} className="text-stone-600" />,
+        action: () => {
+          onClose();
+          setNewHabitModalOpen(true);
+        },
       },
-    },
-    {
-      id: 'act-new-proj',
-      type: 'action',
-      title: 'New Project',
-      subtitle: 'Create a new project and linked skill',
-      icon: <Folder size={14} className="text-stone-600" />,
-      action: () => {
-        setCommandPaletteOpen(false);
-        setNewProjectModalOpen(true);
+      {
+        id: 'act-new-proj',
+        type: 'action',
+        title: 'New Project',
+        subtitle: 'Create a new project and linked skill',
+        icon: <Folder size={14} className="text-stone-600" />,
+        action: () => {
+          onClose();
+          setNewProjectModalOpen(true);
+        },
       },
-    },
-    {
-      id: 'act-backup',
-      type: 'action',
-      title: 'Data Safety & Backup',
-      subtitle: 'Download backup (.json), connect sync folder, or restore data',
-      icon: <HardDrive size={14} className="text-stone-600" />,
-      action: () => {
-        setCommandPaletteOpen(false);
-        setBackupModalOpen(true);
+      {
+        id: 'act-backup',
+        type: 'action',
+        title: 'Data Safety & Backup',
+        subtitle: 'Download backup (.json), connect sync folder, or restore data',
+        icon: <HardDrive size={14} className="text-stone-600" />,
+        action: () => {
+          onClose();
+          setBackupModalOpen(true);
+        },
       },
-    },
-    {
-      id: 'act-toggle-audio',
-      type: 'action',
-      title: 'Toggle Sound Effects',
-      subtitle: 'Turn acoustic chime audio on or off',
-      icon: <Volume2 size={14} className="text-stone-600" />,
-      action: () => {
-        toggleSound();
-        setCommandPaletteOpen(false);
+      {
+        id: 'act-toggle-audio',
+        type: 'action',
+        title: 'Toggle Sound Effects',
+        subtitle: 'Turn acoustic chime audio on or off',
+        icon: <Volume2 size={14} className="text-stone-600" />,
+        action: () => {
+          toggleSound();
+          onClose();
+        },
       },
-    },
-    {
-      id: 'act-guide',
-      type: 'action',
-      title: 'System Guide & Priorities (P1–P4)',
-      subtitle: 'Learn priority XP rewards, syntax, and shortcuts (?)',
-      icon: <HelpCircle size={14} className="text-stone-600" />,
-      action: () => {
-        setCommandPaletteOpen(false);
-        setHelpModalOpen(true);
+      {
+        id: 'act-guide',
+        type: 'action',
+        title: 'System Guide & Priorities (P1–P4)',
+        subtitle: 'Learn priority XP rewards, syntax, and shortcuts (?)',
+        icon: <HelpCircle size={14} className="text-stone-600" />,
+        action: () => {
+          onClose();
+          setHelpModalOpen(true);
+        },
       },
-    },
-  ];
+    ],
+    [
+      setCurrentView,
+      onClose,
+      setQuickAddOpen,
+      setNewHabitModalOpen,
+      setNewProjectModalOpen,
+      setBackupModalOpen,
+      toggleSound,
+      setHelpModalOpen,
+    ]
+  );
 
   const normalizedQuery = query.trim().toLowerCase();
 
@@ -212,7 +233,7 @@ export const CommandPalette: React.FC = () => {
         icon: <Repeat size={14} className="text-stone-500" />,
         action: () => {
           setCurrentView('habits');
-          setCommandPaletteOpen(false);
+          onClose();
         },
       }));
 
@@ -230,7 +251,7 @@ export const CommandPalette: React.FC = () => {
         icon: <Folder size={14} className="text-stone-500" />,
         action: () => {
           setCurrentView('project', p.id);
-          setCommandPaletteOpen(false);
+          onClose();
         },
       }));
 
@@ -253,7 +274,7 @@ export const CommandPalette: React.FC = () => {
         icon: <CheckCircle2 size={14} className="text-stone-500" />,
         action: () => {
           openTaskDetail(t.id);
-          setCommandPaletteOpen(false);
+          onClose();
         },
       }));
 
@@ -265,11 +286,12 @@ export const CommandPalette: React.FC = () => {
     ];
   }, [
     normalizedQuery,
+    navItems,
     habits,
     projects,
     tasks,
     setCurrentView,
-    setCommandPaletteOpen,
+    onClose,
     openTaskDetail,
   ]);
 
@@ -282,17 +304,15 @@ export const CommandPalette: React.FC = () => {
 
   // Scroll active item smoothly into view
   useEffect(() => {
-    if (commandPaletteOpen && selectedItemRef.current) {
+    if (selectedItemRef.current) {
       selectedItemRef.current.scrollIntoView({
         block: 'nearest',
         inline: 'nearest',
       });
     }
-  }, [selectedIndex, commandPaletteOpen]);
+  }, [selectedIndex]);
 
   const handleKeyDown = (e: React.KeyboardEvent | KeyboardEvent) => {
-    if (!commandPaletteOpen) return;
-
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setSelectedIndex((prev) => (filteredItems.length === 0 ? 0 : (prev + 1) % filteredItems.length));
@@ -317,42 +337,30 @@ export const CommandPalette: React.FC = () => {
       if (filteredItems[selectedIndex]) {
         filteredItems[selectedIndex].action();
       }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
     }
   };
 
-  // Window-level hotkey listener (Cmd+K, Esc, and navigation fallback)
+  // Keyboard navigation fallback when focus is not inside input
   useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setCommandPaletteOpen(!commandPaletteOpen);
-        return;
-      }
-
-      if (e.key === 'Escape' && commandPaletteOpen) {
-        e.preventDefault();
-        setCommandPaletteOpen(false);
-        return;
-      }
-
-      // If palette is open and user pressed navigation keys while focus is not in an input
-      if (commandPaletteOpen && document.activeElement !== inputRef.current) {
-        if (['ArrowDown', 'ArrowUp', 'Tab', 'Home', 'End', 'Enter'].includes(e.key)) {
+    const handleActiveKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement !== inputRef.current) {
+        if (['ArrowDown', 'ArrowUp', 'Tab', 'Home', 'End', 'Enter', 'Escape'].includes(e.key)) {
           handleKeyDown(e);
         }
       }
     };
 
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [commandPaletteOpen, setCommandPaletteOpen, selectedIndex, filteredItems]);
-
-  if (!commandPaletteOpen) return null;
+    window.addEventListener('keydown', handleActiveKeyDown);
+    return () => window.removeEventListener('keydown', handleActiveKeyDown);
+  }, [filteredItems, selectedIndex]);
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-8 sm:pt-20 bg-black/25 backdrop-blur-xs p-3 sm:p-4 pb-[env(safe-area-inset-bottom,0px)]"
-      onClick={() => setCommandPaletteOpen(false)}
+      onClick={onClose}
     >
       <div
         className="w-full max-w-xl bg-white rounded-sheet border border-stone-200/90 shadow-modal overflow-hidden flex flex-col"
@@ -370,63 +378,124 @@ export const CommandPalette: React.FC = () => {
               setSelectedIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Type a command, project, or task name..."
-            className="flex-1 text-base sm:text-sm bg-transparent border-none focus:outline-none placeholder-stone-500 text-charcoal font-sans"
-            autoFocus
+            placeholder="Type a command, project, ritual, or search tasks..."
+            className="w-full text-sm bg-transparent border-none outline-none text-charcoal placeholder-stone-400 font-sans"
+            autoComplete="off"
+            spellCheck={false}
           />
-          <button
-            onClick={() => setCommandPaletteOpen(false)}
-            className="min-w-[44px] min-h-[44px] sm:min-w-[36px] sm:min-h-[36px] flex items-center justify-center text-stone-500 hover:text-stone-800 p-2 sm:p-1.5 rounded-mac transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer"
-            aria-label="Close command palette"
-          >
-            <X size={15} />
-          </button>
+          {query && (
+            <button
+              onClick={() => {
+                setQuery('');
+                setSelectedIndex(0);
+                inputRef.current?.focus();
+              }}
+              className="text-stone-400 hover:text-stone-600 p-1 cursor-pointer"
+              title="Clear search"
+            >
+              <X size={14} />
+            </button>
+          )}
+          <span className="hidden sm:inline-block text-[10px] font-mono text-stone-600 bg-stone-100 border border-stone-200/80 px-1.5 py-0.5 rounded">
+            ESC
+          </span>
         </div>
 
         {/* Results List */}
-        <div className="max-h-80 overflow-y-auto p-2 space-y-0.5">
-          {filteredItems.map((item, index) => {
-            const isSelected = index === selectedIndex;
-            return (
-              <div
-                key={item.id}
-                ref={isSelected ? selectedItemRef : undefined}
-                onClick={item.action}
-                onMouseMove={() => {
-                  if (selectedIndex !== index) setSelectedIndex(index);
-                }}
-                className={`flex items-center justify-between px-3 py-2.5 sm:py-2 min-h-[40px] sm:min-h-[34px] rounded-mac text-xs cursor-pointer transition-colors ${
-                  isSelected
-                    ? 'bg-stone-100 text-charcoal font-medium'
-                    : 'text-stone-600 hover:bg-stone-50'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  {item.icon}
-                  <span className="truncate">{item.title}</span>
-                </div>
-                {item.subtitle && (
-                  <span className="text-[10px] text-stone-500 font-mono flex-shrink-0 font-medium">
-                    {item.subtitle}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-
-          {filteredItems.length === 0 && (
-            <div className="py-8 text-center text-xs text-stone-500">
-              No matching commands or tasks found
+        <div className="max-h-[60vh] sm:max-h-96 overflow-y-auto p-2 divide-y divide-stone-100/60">
+          {filteredItems.length === 0 ? (
+            <div className="py-12 text-center text-xs text-stone-400 font-sans">
+              No matching commands, habits, or tasks found.
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {filteredItems.map((item, index) => {
+                const isSelected = index === selectedIndex;
+                return (
+                  <div
+                    key={item.id}
+                    ref={isSelected ? selectedItemRef : null}
+                    onClick={() => item.action()}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                    className={`flex items-center justify-between px-3 py-2.5 rounded-mac cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'bg-stone-100 text-charcoal'
+                        : 'text-stone-700 hover:bg-stone-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex-shrink-0 flex items-center justify-center w-5 h-5">
+                        {item.icon}
+                      </div>
+                      <div className="min-w-0 flex flex-col">
+                        <span className="text-xs font-medium truncate font-sans text-stone-800">
+                          {item.title}
+                        </span>
+                        {item.subtitle && (
+                          <span className="text-[11px] text-stone-600 truncate font-sans">
+                            {item.subtitle}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {isSelected && (
+                      <span className="text-[10px] font-mono text-stone-600 bg-white border border-stone-200 px-1.5 py-0.5 rounded shadow-2xs">
+                        ↵ Return
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* Footer shortcuts */}
-        <div className="px-4 py-2 bg-stone-50/70 border-t border-stone-100 flex items-center justify-between text-[10px] text-stone-500 font-mono font-medium">
-          <span>Navigate with ↑ ↓ (or Tab) and Enter</span>
-          <span>Esc to exit</span>
+        {/* Footer shortcuts hint */}
+        <div className="px-3.5 py-2 bg-stone-50 border-t border-stone-200/80 flex items-center justify-between text-[11px] text-stone-600 select-none">
+          <div className="flex items-center gap-3">
+            <span>
+              <kbd className="font-mono bg-white border border-stone-200 px-1 py-0.5 rounded shadow-2xs mr-1 text-[10px]">
+                ↑
+              </kbd>
+              <kbd className="font-mono bg-white border border-stone-200 px-1 py-0.5 rounded shadow-2xs mr-1 text-[10px]">
+                ↓
+              </kbd>
+              Navigate
+            </span>
+            <span>
+              <kbd className="font-mono bg-white border border-stone-200 px-1 py-0.5 rounded shadow-2xs mr-1 text-[10px]">
+                ↵
+              </kbd>
+              Select
+            </span>
+          </div>
+          <span className="hidden sm:inline font-sans text-[10px] text-stone-600">
+            {filteredItems.length} {filteredItems.length === 1 ? 'result' : 'results'}
+          </span>
         </div>
       </div>
     </div>
   );
+};
+
+export const CommandPalette: React.FC = () => {
+  const commandPaletteOpen = useEkirumStore((s) => s.commandPaletteOpen);
+  const setCommandPaletteOpen = useEkirumStore((s) => s.setCommandPaletteOpen);
+
+  // Global window listener for Cmd+K to open/toggle palette
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(!commandPaletteOpen);
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [commandPaletteOpen, setCommandPaletteOpen]);
+
+  if (!commandPaletteOpen) return null;
+
+  return <CommandPaletteDialog onClose={() => setCommandPaletteOpen(false)} />;
 };

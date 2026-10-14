@@ -7,16 +7,14 @@ import {
 } from 'lucide-react';
 
 export const WindowHeader: React.FC = () => {
-  const {
-    setCurrentView,
-    setCommandPaletteOpen,
-    mobileSidebarOpen,
-    setMobileSidebarOpen,
-    user,
-    skills,
-  } = useEkirumStore();
-
-  const maxStreak = skills.reduce((max, s) => Math.max(max, s.streak), 0);
+  const setCurrentView = useEkirumStore((s) => s.setCurrentView);
+  const setCommandPaletteOpen = useEkirumStore((s) => s.setCommandPaletteOpen);
+  const mobileSidebarOpen = useEkirumStore((s) => s.mobileSidebarOpen);
+  const setMobileSidebarOpen = useEkirumStore((s) => s.setMobileSidebarOpen);
+  const user = useEkirumStore((s) => s.user);
+  const maxStreak = useEkirumStore((s) =>
+    s.skills.reduce((max, sk) => Math.max(max, sk.streak), 0)
+  );
 
   return (
     <header className="min-h-13 border-b border-stone-200/80 bg-stone-50/80 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between select-none z-10 sticky top-0 safe-area-top">

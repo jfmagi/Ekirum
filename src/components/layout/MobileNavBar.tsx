@@ -10,6 +10,8 @@ import {
 import { ViewType } from '../../types';
 import { formatLocalDate } from '../../lib/dateParser';
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const MobileNavBar: React.FC = () => {
   const {
     currentView,
@@ -18,7 +20,16 @@ export const MobileNavBar: React.FC = () => {
     habits,
     user,
     setQuickAddOpen,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      currentView: s.currentView,
+      setCurrentView: s.setCurrentView,
+      tasks: s.tasks,
+      habits: s.habits,
+      user: s.user,
+      setQuickAddOpen: s.setQuickAddOpen,
+    }))
+  );
 
   const todayStr = formatLocalDate();
 

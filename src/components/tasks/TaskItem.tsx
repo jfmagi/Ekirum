@@ -17,10 +17,13 @@ interface TaskItemProps {
   onOpenDetail?: (id: string) => void;
 }
 
-export const TaskItem: React.FC<TaskItemProps> = ({ task, onOpenDetail }) => {
-  const { toggleTaskComplete, deleteTask, projects, openTaskDetail } = useEkirumStore();
-
-  const project = projects.find((p) => p.id === task.projectId);
+export const TaskItem: React.FC<TaskItemProps> = React.memo(({ task, onOpenDetail }) => {
+  const toggleTaskComplete = useEkirumStore((s) => s.toggleTaskComplete);
+  const deleteTask = useEkirumStore((s) => s.deleteTask);
+  const openTaskDetail = useEkirumStore((s) => s.openTaskDetail);
+  const project = useEkirumStore((s) =>
+    task.projectId ? s.projects.find((p) => p.id === task.projectId) : undefined
+  );
 
   const priorityDots: Record<Priority, { color: string; label: string }> = {
     p1: { color: 'bg-crimson', label: 'Priority 1' },
@@ -212,4 +215,4 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onOpenDetail }) => {
       </div>
     </div>
   );
-};
+});

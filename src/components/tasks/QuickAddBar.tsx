@@ -37,7 +37,9 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
   defaultProjectId,
   defaultDueDate,
 }) => {
-  const { addTask, projects, selectedProjectId } = useEkirumStore();
+  const addTask = useEkirumStore((s) => s.addTask);
+  const projects = useEkirumStore((s) => s.projects);
+  const selectedProjectId = useEkirumStore((s) => s.selectedProjectId);
 
   const [input, setInput] = useState('');
   const [selectedProject, setSelectedProject] = useState<string>(

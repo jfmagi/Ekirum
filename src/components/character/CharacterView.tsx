@@ -20,6 +20,8 @@ import { formatLocalDate } from '../../lib/dateParser';
 import { getVisibleAchievements } from '../../lib/achievements';
 import { MAX_LENGTHS } from '../../lib/validation';
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const CharacterView: React.FC = () => {
   const {
     user,
@@ -30,7 +32,18 @@ export const CharacterView: React.FC = () => {
     tasks,
     setNewProjectModalOpen,
     evaluateAndSyncAchievements,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      user: s.user,
+      skills: s.skills,
+      projects: s.projects,
+      achievements: s.achievements,
+      updateUserProfile: s.updateUserProfile,
+      tasks: s.tasks,
+      setNewProjectModalOpen: s.setNewProjectModalOpen,
+      evaluateAndSyncAchievements: s.evaluateAndSyncAchievements,
+    }))
+  );
 
   const [achievementFilter, setAchievementFilter] = useState<'all' | 'achieved' | 'in_progress'>('all');
   const [projectFilter, setProjectFilter] = useState<'all' | 'global' | string>('all');

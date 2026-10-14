@@ -20,6 +20,8 @@ import {
   Clock,
 } from 'lucide-react';
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const BackupModal: React.FC = () => {
   const {
     backupModalOpen,
@@ -39,7 +41,27 @@ export const BackupModal: React.FC = () => {
     importBackupJson,
     restoreSafetySnapshot,
     clearAllData,
-  } = useEkirumStore();
+  } = useEkirumStore(
+    useShallow((s) => ({
+      backupModalOpen: s.backupModalOpen,
+      setBackupModalOpen: s.setBackupModalOpen,
+      tasks: s.tasks,
+      projects: s.projects,
+      skills: s.skills,
+      habits: s.habits,
+      user: s.user,
+      backupStatus: s.backupStatus,
+      isSyncing: s.isSyncing,
+      refreshBackupStatus: s.refreshBackupStatus,
+      selectBackupFolder: s.selectBackupFolder,
+      reconnectBackupFolder: s.reconnectBackupFolder,
+      triggerBackupAndSync: s.triggerBackupAndSync,
+      exportBackupJson: s.exportBackupJson,
+      importBackupJson: s.importBackupJson,
+      restoreSafetySnapshot: s.restoreSafetySnapshot,
+      clearAllData: s.clearAllData,
+    }))
+  );
 
   const [copied, setCopied] = useState(false);
   const [importText, setImportText] = useState('');
