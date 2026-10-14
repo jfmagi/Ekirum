@@ -345,10 +345,12 @@ export function advanceRecurringTask(
   todayStr: string,
   nowIso: string
 ): { completedArchiveTask: Task; activeRecurringTask: Task } {
+  const isMonthly = task.recurrence === 'monthly';
   const parsedDay = task.dueDate ? Number(task.dueDate.split('-')[2]) : undefined;
-  const anchorDay =
-    task.recurrenceAnchorDay ??
-    (parsedDay && !isNaN(parsedDay) && parsedDay >= 1 && parsedDay <= 31 ? parsedDay : undefined);
+  const anchorDay = isMonthly
+    ? (task.recurrenceAnchorDay ??
+       (parsedDay && !isNaN(parsedDay) && parsedDay >= 1 && parsedDay <= 31 ? parsedDay : undefined))
+    : undefined;
 
   const nextDueDate = getNextRecurrenceDate(
     task.dueDate,
@@ -365,6 +367,7 @@ export function advanceRecurringTask(
     completed: true,
     completedAt: nowIso,
     recurrence: 'none',
+    recurrenceAnchorDay: undefined,
     updatedAt: nowIso,
   };
 
@@ -732,12 +735,16 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           effectiveDueDate = `${y}-${m}-${d}`;
         }
 
+        const isMonthly = data.recurrence === 'monthly';
         const parsedDay = effectiveDueDate ? Number(effectiveDueDate.split('-')[2]) : undefined;
-        const recurrenceAnchorDay =
-          data.recurrenceAnchorDay ??
-          (data.recurrence === 'monthly' && parsedDay && !isNaN(parsedDay) && parsedDay >= 1 && parsedDay <= 31
-            ? parsedDay
-            : undefined);
+        const recurrenceAnchorDay = isMonthly
+          ? (typeof data.recurrenceAnchorDay === 'number' &&
+             !isNaN(data.recurrenceAnchorDay) &&
+             data.recurrenceAnchorDay >= 1 &&
+             data.recurrenceAnchorDay <= 31
+              ? Math.floor(data.recurrenceAnchorDay)
+              : (parsedDay && !isNaN(parsedDay) && parsedDay >= 1 && parsedDay <= 31 ? parsedDay : undefined))
+          : undefined;
 
         const now = new Date().toISOString();
 
@@ -771,6 +778,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
 
       updateTask: (id, updates) => {
         const now = new Date().toISOString();
+        const existing = get().tasks.find((t) => t.id === id);
+        if (!existing) return;
+
         const sanitizedUpdates: Partial<Task> = { ...updates };
         if (sanitizedUpdates.title !== undefined) {
           sanitizedUpdates.title = clampString(sanitizedUpdates.title.trim(), MAX_LENGTHS.TASK_TITLE, 'Untitled Task');
@@ -781,19 +791,54 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         if (sanitizedUpdates.labels !== undefined) {
           sanitizedUpdates.labels = sanitizedUpdates.labels.map((l) => clampString(l.trim(), MAX_LENGTHS.LABEL)).filter(Boolean);
         }
-        const updatedTask = { ...sanitizedUpdates, updatedAt: now };
+
+        const effectiveRecurrence = sanitizedUpdates.recurrence !== undefined ? sanitizedUpdates.recurrence : existing.recurrence;
+        let effectiveDueDate = sanitizedUpdates.dueDate !== undefined ? sanitizedUpdates.dueDate : existing.dueDate;
 
         // If recurrence is being assigned to a dateless task, auto-assign today as initial schedule
-        if (updates.recurrence && updates.recurrence !== 'none') {
-          const existing = get().tasks.find((t) => t.id === id);
-          if (existing && !existing.dueDate && !updates.dueDate) {
+        if (sanitizedUpdates.recurrence && sanitizedUpdates.recurrence !== 'none') {
+          if (!effectiveDueDate) {
             const today = new Date();
             const y = today.getFullYear();
             const m = String(today.getMonth() + 1).padStart(2, '0');
             const d = String(today.getDate()).padStart(2, '0');
-            updatedTask.dueDate = `${y}-${m}-${d}`;
+            effectiveDueDate = `${y}-${m}-${d}`;
+            sanitizedUpdates.dueDate = effectiveDueDate;
           }
         }
+
+        // Maintain recurrenceAnchorDay invariant:
+        // 1. Only monthly tasks have an anchor day (1-31).
+        // 2. Clear anchor when recurrence moves off monthly.
+        // 3. Recompute anchor if dueDate explicitly changed on a monthly task or recurrence switched to monthly.
+        // 4. Preserve existing anchor on non-date updates (e.g. title/priority edits while clamped to Feb 28).
+        if (effectiveRecurrence === 'monthly') {
+          if (sanitizedUpdates.recurrenceAnchorDay !== undefined) {
+            const rawAnchor = sanitizedUpdates.recurrenceAnchorDay;
+            sanitizedUpdates.recurrenceAnchorDay =
+              typeof rawAnchor === 'number' && !isNaN(rawAnchor) && rawAnchor >= 1 && rawAnchor <= 31
+                ? Math.floor(rawAnchor)
+                : undefined;
+          } else if (sanitizedUpdates.dueDate !== undefined && sanitizedUpdates.dueDate !== existing.dueDate) {
+            const parsed = effectiveDueDate ? Number(effectiveDueDate.split('-')[2]) : undefined;
+            sanitizedUpdates.recurrenceAnchorDay =
+              parsed && !isNaN(parsed) && parsed >= 1 && parsed <= 31 ? parsed : undefined;
+          } else if (sanitizedUpdates.recurrence === 'monthly' && existing.recurrence !== 'monthly') {
+            const parsed = effectiveDueDate ? Number(effectiveDueDate.split('-')[2]) : undefined;
+            sanitizedUpdates.recurrenceAnchorDay =
+              parsed && !isNaN(parsed) && parsed >= 1 && parsed <= 31 ? parsed : undefined;
+          } else {
+            const parsed = effectiveDueDate ? Number(effectiveDueDate.split('-')[2]) : undefined;
+            sanitizedUpdates.recurrenceAnchorDay =
+              existing.recurrenceAnchorDay ??
+              (parsed && !isNaN(parsed) && parsed >= 1 && parsed <= 31 ? parsed : undefined);
+          }
+        } else {
+          // Explicitly clear anchor on non-monthly tasks
+          sanitizedUpdates.recurrenceAnchorDay = undefined;
+        }
+
+        const updatedTask = { ...sanitizedUpdates, updatedAt: now };
 
         set((state) => ({
           tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updatedTask } : t)),

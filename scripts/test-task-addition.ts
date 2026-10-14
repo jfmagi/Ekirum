@@ -292,6 +292,100 @@ assert.strictEqual(adv4.activeRecurringTask.dueDate, '2026-05-31');
 assert.strictEqual(adv4.activeRecurringTask.recurrenceAnchorDay, 31);
 console.log('Test 19c & 19d: Chained monthly recurrence maintains anchorDay without drifting: PASSED');
 
+// Test 19e: advanceRecurringTask rules:
+// - completedArchiveTask has recurrenceAnchorDay === undefined
+// - daily / weekly activeRecurringTask has recurrenceAnchorDay === undefined
+assert.strictEqual(adv1.completedArchiveTask.recurrenceAnchorDay, undefined, 'Archive task must clear anchorDay');
+
+const dailyTaskWithAnchor: Task = {
+  id: 'task-daily-anchor',
+  projectId: 'proj-1',
+  title: 'Daily Standup',
+  dueDate: '2026-10-14',
+  recurrence: 'daily',
+  priority: 'p2',
+  labels: [],
+  completed: false,
+  subtasks: [],
+  createdAt: '2026-10-14T08:00:00.000Z',
+  updatedAt: '2026-10-14T08:00:00.000Z',
+};
+const advDaily = advanceRecurringTask(dailyTaskWithAnchor, '2026-10-14', '2026-10-14T08:00:00.000Z');
+assert.strictEqual(advDaily.activeRecurringTask.recurrenceAnchorDay, undefined, 'Daily active task must not have recurrenceAnchorDay');
+assert.strictEqual(advDaily.completedArchiveTask.recurrenceAnchorDay, undefined, 'Daily archive task must not have recurrenceAnchorDay');
+console.log('Test 19e: advanceRecurringTask strictly restricts recurrenceAnchorDay to active monthly tasks: PASSED');
+
+// Test 19f: updateTask maintains recurrenceAnchorDay correctly:
+// 1. Changing dueDate on monthly task recomputes anchor
+const monthlyTaskForEdit = store.addTask({
+  title: 'Rent Payment',
+  dueDate: '2026-01-31',
+  recurrence: 'monthly',
+});
+assert.strictEqual(monthlyTaskForEdit.recurrenceAnchorDay, 31);
+
+// User changes dueDate from 31st to 15th
+store.updateTask(monthlyTaskForEdit.id, { dueDate: '2026-02-15' });
+const updatedTo15 = useEkirumStore.getState().tasks.find((t) => t.id === monthlyTaskForEdit.id);
+assert.strictEqual(updatedTo15?.dueDate, '2026-02-15');
+assert.strictEqual(updatedTo15?.recurrenceAnchorDay, 15, 'Editing dueDate to 15th must recompute recurrenceAnchorDay to 15');
+
+// Advancing it now advances to March 15, not 31st!
+const adv15 = advanceRecurringTask(updatedTo15!, '2026-02-15', '2026-02-15T10:00:00.000Z');
+assert.strictEqual(adv15.activeRecurringTask.dueDate, '2026-03-15', 'Completion must advance to 15th of next month');
+assert.strictEqual(adv15.activeRecurringTask.recurrenceAnchorDay, 15);
+
+// 2. Preserves anchor when editing non-date fields while clamped to Feb 28
+const monthlyClampedTask = store.addTask({
+  title: 'Cloud Hosting Invoice',
+  dueDate: '2026-01-31',
+  recurrence: 'monthly',
+});
+// Advance to Feb 28
+const advClamped = advanceRecurringTask(monthlyClampedTask, '2026-01-31', '2026-01-31T10:00:00.000Z');
+assert.strictEqual(advClamped.activeRecurringTask.dueDate, '2026-02-28');
+assert.strictEqual(advClamped.activeRecurringTask.recurrenceAnchorDay, 31);
+store.updateTask(monthlyClampedTask.id, {
+  dueDate: '2026-02-28',
+  recurrenceAnchorDay: 31,
+});
+// User updates title in February
+store.updateTask(monthlyClampedTask.id, { title: 'Cloud Hosting Invoice (Updated)' });
+const titleUpdatedTask = useEkirumStore.getState().tasks.find((t) => t.id === monthlyClampedTask.id);
+assert.strictEqual(titleUpdatedTask?.title, 'Cloud Hosting Invoice (Updated)');
+assert.strictEqual(titleUpdatedTask?.recurrenceAnchorDay, 31, 'Editing title while clamped to Feb 28 must preserve anchor 31');
+
+// 3. Moving recurrence off monthly clears recurrenceAnchorDay
+store.updateTask(monthlyClampedTask.id, { recurrence: 'daily' });
+const movedToDailyTask = useEkirumStore.getState().tasks.find((t) => t.id === monthlyClampedTask.id);
+assert.strictEqual(movedToDailyTask?.recurrence, 'daily');
+assert.strictEqual(movedToDailyTask?.recurrenceAnchorDay, undefined, 'Moving off monthly must clear recurrenceAnchorDay');
+
+// 4. Moving recurrence back to monthly derives anchor from current dueDate
+store.updateTask(monthlyClampedTask.id, { recurrence: 'monthly' });
+const movedBackToMonthly = useEkirumStore.getState().tasks.find((t) => t.id === monthlyClampedTask.id);
+assert.strictEqual(movedBackToMonthly?.recurrence, 'monthly');
+assert.strictEqual(movedBackToMonthly?.recurrenceAnchorDay, 28, 'Moving back to monthly re-derives anchor from current dueDate');
+console.log('Test 19f: updateTask correctly recomputes, preserves, and clears recurrenceAnchorDay: PASSED');
+
+// Test 19g: schemaSanitizers and addTask reject recurrenceAnchorDay on non-monthly tasks
+const { sanitizeTask } = await import('../src/lib/schemaSanitizers');
+const sanitizedDailyWithAnchor = sanitizeTask({
+  id: 'test-sanitized-daily',
+  title: 'Daily Task',
+  recurrence: 'daily',
+  recurrenceAnchorDay: 15,
+});
+assert.strictEqual(sanitizedDailyWithAnchor?.recurrenceAnchorDay, undefined, 'sanitizeTask must strip recurrenceAnchorDay from non-monthly task');
+
+const addedDailyWithAnchor = store.addTask({
+  title: 'Standup',
+  recurrence: 'daily',
+  recurrenceAnchorDay: 20 as any,
+});
+assert.strictEqual(addedDailyWithAnchor.recurrenceAnchorDay, undefined, 'addTask must not store recurrenceAnchorDay on daily task');
+console.log('Test 19g: schemaSanitizers and addTask strictly guard recurrenceAnchorDay behind monthly recurrence: PASSED');
+
 // Test 20: toggleTaskComplete on recurring task advances schedule to tomorrow and preserves completion log
 await store.toggleTaskComplete(dailyAddedTask.id);
 const allTasksAfterComplete = useEkirumStore.getState().tasks;

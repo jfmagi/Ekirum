@@ -1,5 +1,6 @@
 import 'fake-indexeddb/auto';
 import assert from 'node:assert';
+import { formatLocalDate } from '../src/lib/dateParser';
 import { MAX_LENGTHS, clampString, clampOptionalString } from '../src/lib/validation';
 import {
   sanitizeTask,
@@ -484,6 +485,12 @@ const fullSkill: Skill = {
   isDeleted: false,
 };
 
+const todayDateObj = new Date();
+const habitDateToday = formatLocalDate(todayDateObj);
+const habitDateYest = formatLocalDate(new Date(todayDateObj.getTime() - 24 * 3600 * 1000));
+const habitDate2DaysAgo = formatLocalDate(new Date(todayDateObj.getTime() - 48 * 3600 * 1000));
+const habitFidelityDates = [habitDate2DaysAgo, habitDateYest, habitDateToday];
+
 const fullHabit: Habit = {
   id: 'habit-fidelity-1',
   title: 'Deep Work Habit',
@@ -492,7 +499,7 @@ const fullHabit: Habit = {
   frequency: 'daily',
   color: '#8B1528',
   icon: 'Sparkle',
-  completedDates: ['2026-10-10', '2026-10-11', '2026-10-12'],
+  completedDates: habitFidelityDates,
   streak: 3,
   longestStreak: 14,
   createdAt: nowIso,
@@ -504,7 +511,7 @@ const fullHabitEvents: HabitEvent[] = [
   {
     id: 'event-fidelity-1',
     habitId: 'habit-fidelity-1',
-    date: '2026-10-10',
+    date: habitDate2DaysAgo,
     completedAt: nowIso,
     createdAt: nowIso,
     updatedAt: nowIso,
@@ -513,7 +520,7 @@ const fullHabitEvents: HabitEvent[] = [
   {
     id: 'event-fidelity-2',
     habitId: 'habit-fidelity-1',
-    date: '2026-10-11',
+    date: habitDateYest,
     completedAt: nowIso,
     createdAt: nowIso,
     updatedAt: nowIso,
@@ -522,7 +529,7 @@ const fullHabitEvents: HabitEvent[] = [
   {
     id: 'event-fidelity-3',
     habitId: 'habit-fidelity-1',
-    date: '2026-10-12',
+    date: habitDateToday,
     completedAt: nowIso,
     createdAt: nowIso,
     updatedAt: nowIso,

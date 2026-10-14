@@ -52,6 +52,7 @@ export function sanitizeTask(raw: any): Task | null {
     labels: Array.isArray(raw.labels) ? raw.labels.filter((l: any) => typeof l === 'string' && l.trim()).map((l: any) => String(l).trim().slice(0, MAX_LENGTHS.LABEL)) : [],
     order: typeof raw.order === 'number' && !isNaN(raw.order) ? raw.order : 0,
     recurrenceAnchorDay:
+      raw.recurrence === 'monthly' &&
       typeof raw.recurrenceAnchorDay === 'number' &&
       !isNaN(raw.recurrenceAnchorDay) &&
       raw.recurrenceAnchorDay >= 1 &&
