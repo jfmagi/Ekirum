@@ -3,7 +3,6 @@ import { useEkirumStore, getSkillRankTitle, getXpRequiredForLevel, getXpRequired
 import { IconHelper } from '../common/IconHelper';
 import { processAvatarImage } from '../../lib/avatarHelper';
 import {
-  Flame,
   Award,
   Sparkles,
   Check,
@@ -418,37 +417,19 @@ export const CharacterView: React.FC = () => {
                 key={skill.id}
                 className="group relative bg-white border border-stone-200/90 hover:border-stone-300 rounded-card p-5 sm:p-6 shadow-placard transition-all duration-300"
               >
-                {/* Top card row: Icon, Name, Streak */}
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-mac bg-stone-100 border border-stone-200/80 flex items-center justify-center text-charcoal group-hover:border-gold/50 transition-colors">
-                      <IconHelper name={skill.icon || 'Folder'} size={18} strokeWidth={1.5} />
-                    </div>
-
-                    <div>
-                      <h4 className="text-sm font-serif font-semibold text-charcoal">
-                        {skill.name}
-                      </h4>
-                      <span className="text-xs text-stone-500 font-serif font-medium">
-                        {rankTitle}
-                      </span>
-                    </div>
+                {/* Top card row: Icon, Name */}
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-mac bg-stone-100 border border-stone-200/80 flex items-center justify-center text-charcoal group-hover:border-gold/50 transition-colors">
+                    <IconHelper name={skill.icon || 'Folder'} size={18} strokeWidth={1.5} />
                   </div>
 
-                  {/* Streak candle / flame */}
-                  <div
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-mono ${
-                      skill.streak > 0
-                        ? 'bg-amber-50 border-amber-200/70 text-amber-700'
-                        : 'bg-stone-50 border-stone-200 text-stone-500'
-                    }`}
-                    title={`${skill.streak}-day active streak`}
-                  >
-                    <Flame
-                      size={13}
-                      className={skill.streak > 0 ? 'fill-amber-500 text-amber-500' : 'text-stone-400'}
-                    />
-                    <span>{skill.streak}d</span>
+                  <div>
+                    <h4 className="text-sm font-serif font-semibold text-charcoal">
+                      {skill.name}
+                    </h4>
+                    <span className="text-xs text-stone-500 font-serif font-medium">
+                      {rankTitle}
+                    </span>
                   </div>
                 </div>
 
