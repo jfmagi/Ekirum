@@ -83,15 +83,28 @@ export const App: React.FC = () => {
   useEffect(() => {
     initStorage();
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        triggerBackupAndSync(false);
-        refreshBackupStatus();
-      }
+    const handleSync = () => {
+      triggerBackupAndSync(false);
+      refreshBackupStatus();
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('visibilitychange', handleSync);
+    window.addEventListener('focus', handleSync);
+    window.addEventListener('blur', handleSync);
+
+    // Periodic check every 15s to pick up changes from other devices while app is open
+    const periodicInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        triggerBackupAndSync(false);
+      }
+    }, 15000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleSync);
+      window.removeEventListener('focus', handleSync);
+      window.removeEventListener('blur', handleSync);
+      clearInterval(periodicInterval);
+    };
   }, [initStorage, triggerBackupAndSync, refreshBackupStatus]);
 
   // Global Keyboard shortcuts with strict modifier protection

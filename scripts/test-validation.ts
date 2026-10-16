@@ -11,7 +11,7 @@ import {
   sanitizeLibraryItem,
 } from '../src/lib/schemaSanitizers';
 import { advanceRecurringTask, useEkirumStore } from '../src/store/useEkirumStore';
-import { syncDeviceFiles, getBackupStatus } from '../src/lib/backupService';
+import { syncDeviceFiles, getBackupStatus, writeDeviceFile, atomicWriteFile, performDailyBackup } from '../src/lib/backupService';
 import { compactTombstones, importAndMerge, exportAll, MAX_RECORDS_PER_TABLE } from '../src/lib/syncEngine';
 import { INITIAL_USER } from '../src/lib/seedData';
 import { db } from '../src/lib/db';
@@ -650,5 +650,81 @@ assert.deepStrictEqual(restoredLibraryItem, fullLibraryItem, 'LibraryItem must s
 
 console.log('Test 16: Complete end-to-end round-trip fidelity across all 8 tables: PASSED');
 
+// Test 17: writeDeviceFile writes atomically and independently of 24h daily backup throttle
+const writtenFiles: Record<string, string> = {};
+let moveCalled = false;
+
+const mockAtomicDir = {
+  kind: 'directory',
+  name: 'mock-atomic-dir',
+  getFileHandle: async (name: string, _opts?: any) => {
+    return {
+      name,
+      createWritable: async () => {
+        let buffer = '';
+        return {
+          write: async (chunk: string) => { buffer += chunk; },
+          close: async () => { writtenFiles[name] = buffer; },
+        };
+      },
+      move: async (targetName: string) => {
+        moveCalled = true;
+        writtenFiles[targetName] = writtenFiles[name];
+        delete writtenFiles[name];
+      },
+    };
+  },
+} as any;
+
+// Set lastBackupAt to fresh (< 24h)
+await db.settings.put({ key: 'lastBackupAt', value: new Date().toISOString() });
+
+// Daily backup is skipped because < 24h
+const dailySkipped = await performDailyBackup(mockAtomicDir, false);
+assert.strictEqual(dailySkipped, false, 'Daily backup should skip when fresh (<24h)');
+
+// writeDeviceFile MUST succeed even when daily backup is fresh (<24h)
+const deviceWriteOk = await writeDeviceFile(mockAtomicDir);
+assert.strictEqual(deviceWriteOk, true, 'writeDeviceFile must run unconditionally on sync');
+assert.strictEqual(moveCalled, true, 'Atomic write must utilize .move() rename');
+
+const writtenKeys = Object.keys(writtenFiles);
+const deviceFileKey = writtenKeys.find((k) => k.startsWith('device-') && k.endsWith('.json'));
+assert.ok(deviceFileKey, 'device-<id>.json must be written to folder');
+const devicePayload = JSON.parse(writtenFiles[deviceFileKey]);
+assert.strictEqual(devicePayload.schemaVersion, 1);
+assert.ok(devicePayload.tables.tasks.length > 0);
+console.log('Test 17: writeDeviceFile atomic write and separation from 24h throttle: PASSED');
+
+// Test 18: importAndMerge preserves habit completedDates when tables.habitEvents is omitted
+const habitWithoutEventsId = 'habit-no-events-test';
+await db.habits.put({
+  id: habitWithoutEventsId,
+  title: 'Daily Reflection',
+  frequency: 'daily',
+  streak: 2,
+  longestStreak: 2,
+  completedDates: ['2026-10-14', '2026-10-15'],
+  createdAt: nowIso,
+  updatedAt: nowIso,
+  isDeleted: false,
+});
+
+await importAndMerge({
+  schemaVersion: 1,
+  tables: {
+    tasks: [],
+    // Note: habitEvents table completely omitted
+  },
+});
+
+const preservedHabit = await db.habits.get(habitWithoutEventsId);
+assert.ok(preservedHabit);
+assert.strictEqual(preservedHabit.completedDates.length, 2, 'Existing habit completedDates must not be wiped when habitEvents table is omitted');
+assert.strictEqual(preservedHabit.completedDates[0], '2026-10-14');
+assert.strictEqual(preservedHabit.completedDates[1], '2026-10-15');
+console.log('Test 18: Habit completedDates preservation when habitEvents are omitted: PASSED');
+
 console.log('\n🎉 ALL VALIDATION & DATA INTEGRITY TESTS PASSED!');
+
 

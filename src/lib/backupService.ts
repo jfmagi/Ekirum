@@ -145,9 +145,12 @@ export async function pickBackupDirectory(): Promise<{ success: boolean; name?: 
 
     await saveDirectoryHandle(handle);
 
-    // Immediately trigger initial backup and sync
-    await performBackup(handle, true);
-    await syncDeviceFiles(handle);
+    // 1. Immediately merge foreign devices from the selected folder
+    await syncDeviceFiles(handle, true);
+    // 2. Export local state to device-<id>.json so other devices can sync our data
+    await writeDeviceFile(handle);
+    // 3. Create initial daily backup snapshot
+    await performDailyBackup(handle, true);
 
     return { success: true, name: handle.name };
   } catch (err: any) {
@@ -167,21 +170,78 @@ export async function reconnectBackupDirectory(): Promise<boolean> {
 
   const perm = await verifyHandlePermission(handle, true);
   if (perm === 'granted') {
-    // Perform catch-up backup and sync
-    await performBackup(handle, false);
-    await syncDeviceFiles(handle);
+    // Perform catch-up sync and backup
+    await syncDeviceFiles(handle, true);
+    await writeDeviceFile(handle);
+    await performDailyBackup(handle, false);
     return true;
   }
   return false;
 }
 
 /**
- * Execute backup write to the directory handle.
+ * Write a file atomically by writing to *.tmp first and renaming via .move().
+ * Falls back safely to direct write if temp handle or move() is unavailable.
  */
-async function performBackup(
+export async function atomicWriteFile(
+  handle: FileSystemDirectoryHandle,
+  fileName: string,
+  content: string
+): Promise<void> {
+  if (!handle || typeof (handle as any).getFileHandle !== 'function') return;
+
+  const tmpName = `${fileName}.tmp`;
+  try {
+    const tmpHandle = await handle.getFileHandle(tmpName, { create: true });
+    const writable = await (tmpHandle as any).createWritable();
+    await writable.write(content);
+    await writable.close();
+
+    if (typeof (tmpHandle as any).move === 'function') {
+      await (tmpHandle as any).move(fileName);
+    } else {
+      const targetHandle = await handle.getFileHandle(fileName, { create: true });
+      const targetWritable = await (targetHandle as any).createWritable();
+      await targetWritable.write(content);
+      await targetWritable.close();
+      await handle.removeEntry(tmpName).catch(() => {});
+    }
+  } catch {
+    // Direct write fallback
+    const fileHandle = await handle.getFileHandle(fileName, { create: true });
+    const writable = await (fileHandle as any).createWritable();
+    await writable.write(content);
+    await writable.close();
+  }
+}
+
+/**
+ * Export current local state and write atomically to device-<deviceId>.json.
+ * This file is read by other devices to synchronize recent changes.
+ */
+export async function writeDeviceFile(handle: FileSystemDirectoryHandle): Promise<boolean> {
+  if (!handle || typeof (handle as any).getFileHandle !== 'function') return false;
+  try {
+    const deviceId = await getOrCreateDeviceId();
+    const backupData = await exportAll(deviceId);
+    const jsonContent = JSON.stringify(backupData, null, 2);
+    const deviceFileName = `device-${deviceId}.json`;
+    await atomicWriteFile(handle, deviceFileName, jsonContent);
+    return true;
+  } catch (err) {
+    console.error('Failed to write device sync file:', err);
+    return false;
+  }
+}
+
+/**
+ * Write daily archive snapshot backup-YYYY-MM-DD.json if >=24h or forced.
+ */
+export async function performDailyBackup(
   handle: FileSystemDirectoryHandle,
   force = false
 ): Promise<boolean> {
+  if (!handle || typeof (handle as any).getFileHandle !== 'function') return false;
   const deviceId = await getOrCreateDeviceId();
   const lastBackup = await db.settings.get('lastBackupAt');
   const lastBackupAt = lastBackup?.value as string;
@@ -199,36 +259,37 @@ async function performBackup(
 
   const todayStr = formatLocalDate();
   const dailyFileName = `backup-${todayStr}.json`;
-  const deviceFileName = `device-${deviceId}.json`;
 
   try {
-    // 1. Write daily snapshot: backup-YYYY-MM-DD.json
-    const dailyFileHandle = await handle.getFileHandle(dailyFileName, { create: true });
-    const dailyWritable = await (dailyFileHandle as any).createWritable();
-    await dailyWritable.write(jsonContent);
-    await dailyWritable.close();
-
-    // 2. Write device-specific file: device-<deviceId>.json for serverless sync
-    const deviceFileHandle = await handle.getFileHandle(deviceFileName, { create: true });
-    const deviceWritable = await (deviceFileHandle as any).createWritable();
-    await deviceWritable.write(jsonContent);
-    await deviceWritable.close();
+    await atomicWriteFile(handle, dailyFileName, jsonContent);
 
     // Update timestamp
     const nowIso = new Date().toISOString();
     await db.settings.put({ key: 'lastBackupAt', value: nowIso });
 
-    // 3. Compact tombstones older than 60 days to keep tables bounded
+    // Compact tombstones older than 60 days to keep tables bounded
     await compactTombstones(60).catch((err) => console.warn('Tombstone compaction skipped:', err));
 
-    // 4. Prune old daily backups (keep last 14)
+    // Prune old daily backups (keep last 14)
     await pruneOldBackups(handle);
 
     return true;
   } catch (err) {
-    console.error('Backup write failed:', err);
+    console.error('Daily backup write failed:', err);
     return false;
   }
+}
+
+/**
+ * Execute both device file update and daily snapshot backup.
+ */
+export async function performBackup(
+  handle: FileSystemDirectoryHandle,
+  force = false
+): Promise<boolean> {
+  const deviceOk = await writeDeviceFile(handle);
+  const dailyOk = await performDailyBackup(handle, force);
+  return deviceOk || dailyOk;
 }
 
 /**
@@ -270,7 +331,7 @@ export async function pruneOldBackups(handle: FileSystemDirectoryHandle): Promis
   }
 }
 
-export const SYNC_THROTTLE_MS = 30 * 1000;
+export const SYNC_THROTTLE_MS = 10 * 1000;
 let isBackupSyncRunning = false;
 
 export interface BackupAndSyncResult {
@@ -385,7 +446,7 @@ export async function syncDeviceFiles(
 }
 
 /**
- * Automated lifecycle check: called on app mount and on visibilitychange.
+ * Automated lifecycle check: called on app mount, visibilitychange, and periodic checks.
  */
 export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncResult> {
   if (isBackupSyncRunning) {
@@ -404,14 +465,18 @@ export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncRe
       return { success: false, totalChanges: 0 };
     }
 
-    // 1. Check if backup is needed or forced
-    await performBackup(handle, force);
-
-    // 2. Sync with other devices in the shared folder
+    // 1. Sync other devices' files from the shared folder into local Dexie
     const syncRes = await syncDeviceFiles(handle, force);
     const totalChanges = syncRes.mergeResult?.totalChanges || 0;
 
-    return { success: true, totalChanges };
+    // 2. Export our up-to-date state (including any new local changes or merged foreign records) to device-<id>.json
+    const deviceWriteOk = await writeDeviceFile(handle);
+
+    // 3. Daily backup snapshot (if >=24h or forced)
+    await performDailyBackup(handle, force);
+
+    const isSuccess = (syncRes.mergeResult ? syncRes.mergeResult.success : true) && deviceWriteOk;
+    return { success: isSuccess, totalChanges };
   } catch (err) {
     console.warn('maybeBackupAndSync error:', err);
     return { success: false, totalChanges: 0 };

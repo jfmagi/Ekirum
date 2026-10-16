@@ -507,7 +507,7 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
         // Compute streak updates in memory: O(H)
         const updatedHabits: Habit[] = allHabits.map((habit) => {
           const dateSet = datesByHabitId.get(habit.id);
-          const dates = dateSet ? Array.from(dateSet).sort() : [];
+          const dates = dateSet ? Array.from(dateSet).sort() : (habit.completedDates || []);
           const { current, longest } = calculateHabitStreak(dates);
 
           return {

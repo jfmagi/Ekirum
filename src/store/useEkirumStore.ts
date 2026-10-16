@@ -37,6 +37,7 @@ import {
   pickBackupDirectory,
   reconnectBackupDirectory,
   maybeBackupAndSync,
+  isFileSystemAccessSupported,
   BackupStatus,
 } from '../lib/backupService';
 import { MAX_LENGTHS, clampString } from '../lib/validation';
@@ -383,6 +384,19 @@ export function advanceRecurringTask(
   return { completedArchiveTask, activeRecurringTask };
 }
 
+let backgroundSyncTimer: any = null;
+export function scheduleBackgroundSync(delayMs = 2500) {
+  if (typeof window === 'undefined') return;
+  if (!isFileSystemAccessSupported()) return;
+  if (backgroundSyncTimer) clearTimeout(backgroundSyncTimer);
+  backgroundSyncTimer = setTimeout(() => {
+    const state = useEkirumStore.getState();
+    if (!state.isSyncing) {
+      state.triggerBackupAndSync(false).catch(() => {});
+    }
+  }, delayMs);
+}
+
 export const useEkirumStore = create<EkirumStore>()((set, get) => {
       const handleStorageError = (error: unknown, actionDesc = 'saving data') => {
         console.warn(`[Storage Error] Failed while ${actionDesc}:`, error);
@@ -681,6 +695,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       selectBackupFolder: async () => {
         set({ isSyncing: true });
         const res = await pickBackupDirectory();
+        if (res.success) {
+          await get().syncWithDatabase();
+        }
         await get().refreshBackupStatus();
         set({ isSyncing: false });
         return res;
@@ -702,7 +719,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         set({ isSyncing: true });
         try {
           const res = await maybeBackupAndSync(force);
-          if (res.success && res.totalChanges > 0) {
+          if (res.totalChanges > 0) {
             await get().syncWithDatabase();
           }
           await get().refreshBackupStatus();
@@ -2135,3 +2152,16 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       };
     }
 );
+
+useEkirumStore.subscribe((state, prevState) => {
+  if (state.isSyncing) return;
+  if (
+    state.tasks !== prevState.tasks ||
+    state.habits !== prevState.habits ||
+    state.projects !== prevState.projects ||
+    state.user !== prevState.user ||
+    state.libraryItems !== prevState.libraryItems
+  ) {
+    scheduleBackgroundSync();
+  }
+});
