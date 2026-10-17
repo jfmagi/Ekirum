@@ -218,7 +218,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
     const count = effectiveBatchCount;
     const finalDueDate =
       effectiveDueDate ||
-      (effectiveRecurrence !== 'none' && explicitDueDate !== null ? todayStr : undefined);
+      ((effectiveRecurrence !== 'none' || effectiveDueTime) && explicitDueDate !== null ? todayStr : undefined);
 
     if (count > 1) {
       // Add in reverse order so #1 ends up at the top of the task list

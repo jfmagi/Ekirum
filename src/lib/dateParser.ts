@@ -453,7 +453,49 @@ export function parseNaturalLanguageTask(input: string): ParsedTaskInput {
     )
   );
 
-  if (namedTimeMatch) {
+  // 5a. Extract Time Range (e.g. "10-12", "at 10-12", "10:00-12:00", "10:30-11:15", "from 10 to 12", "od 10 do 12", "de 10 a 12", "10am-12pm")
+  const timeRangeMatch = text.match(
+    new RegExp(
+      `(?<!\\d{4}-)${WB_S}(?:(?:at|o|a\\s+las?|from|od|de)\\s+)?([01]?\\d|2[0-3])(?::([0-5]\\d))?\\s*(am|pm)?\\s*(?:-|–|—|to|do|a|aż\\s+do|az\\s+do|hasta)\\s*([01]?\\d|2[0-3])(?::([0-5]\\d))?\\s*(am|pm)?${WB_E}(?!-\\d{2})`,
+      'iu'
+    )
+  );
+
+  if (timeRangeMatch) {
+    let startH = parseInt(timeRangeMatch[1], 10);
+    const startM = parseInt(timeRangeMatch[2] || '0', 10);
+    const startPeriod = timeRangeMatch[3]?.toLowerCase();
+
+    let endH = parseInt(timeRangeMatch[4], 10);
+    const endM = parseInt(timeRangeMatch[5] || '0', 10);
+    const endPeriod = timeRangeMatch[6]?.toLowerCase();
+
+    const rawEndH = endH;
+    if (endPeriod === 'pm' && endH < 12) endH += 12;
+    if (endPeriod === 'am' && endH === 12) endH = 0;
+    if (startPeriod === 'pm' && startH < 12) startH += 12;
+    if (startPeriod === 'am' && startH === 12) startH = 0;
+
+    if (!startPeriod && endPeriod === 'pm') {
+      if (startH < rawEndH && startH < 12) {
+        startH += 12;
+      }
+    }
+
+    if (!startPeriod && !endPeriod && endH < startH && endH + 12 < 24) {
+      endH += 12;
+    }
+
+    const startTotal = startH * 60 + startM;
+    const endTotal = endH * 60 + endM;
+    if (endTotal > startTotal) {
+      dueTime = `${startH.toString().padStart(2, '0')}:${startM.toString().padStart(2, '0')}`;
+      if (!duration) {
+        duration = endTotal - startTotal;
+      }
+      text = text.replace(timeRangeMatch[0], '');
+    }
+  } else if (namedTimeMatch) {
     const word = namedTimeMatch[1].toLowerCase();
     if (word === 'noon' || word === 'południe' || word === 'poludnie' || word === 'mediodía' || word === 'mediodia') {
       dueTime = '12:00';
@@ -693,6 +735,11 @@ export function parseNaturalLanguageTask(input: string): ParsedTaskInput {
     } else if (recurrence === 'weekly' || recurrence === 'monthly') {
       dueDate = todayStr;
     }
+  }
+
+  // If time was set without an explicit date, initialize schedule starting today
+  if (!dueDate && dueTime) {
+    dueDate = todayStr;
   }
 
   // Clean extra whitespace and trailing prepositions attached to stripped date/time/duration

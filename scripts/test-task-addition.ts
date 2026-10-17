@@ -690,28 +690,64 @@ const wnTask1 = parseNaturalLanguageTask('two hours task at 10');
 assert.strictEqual(wnTask1.title, 'task');
 assert.strictEqual(wnTask1.duration, 120);
 assert.strictEqual(wnTask1.dueTime, '10:00');
+assert.strictEqual(wnTask1.dueDate, todayStr, 'Time without explicit date defaults to todayStr');
 
 const wnTask2 = parseNaturalLanguageTask('a two-hour meeting at 14:00');
 assert.strictEqual(wnTask2.title, 'meeting');
 assert.strictEqual(wnTask2.duration, 120);
 assert.strictEqual(wnTask2.dueTime, '14:00');
+assert.strictEqual(wnTask2.dueDate, todayStr);
 
 const wnTask3 = parseNaturalLanguageTask('half an hour call at 11');
 assert.strictEqual(wnTask3.title, 'call');
 assert.strictEqual(wnTask3.duration, 30);
 assert.strictEqual(wnTask3.dueTime, '11:00');
+assert.strictEqual(wnTask3.dueDate, todayStr);
 
 const wnTask4 = parseNaturalLanguageTask('trening dwie godziny o 18');
 assert.strictEqual(wnTask4.title, 'trening');
 assert.strictEqual(wnTask4.duration, 120);
 assert.strictEqual(wnTask4.dueTime, '18:00');
+assert.strictEqual(wnTask4.dueDate, todayStr);
 
 const wnTask5 = parseNaturalLanguageTask('reunión dos horas a las 10');
 assert.strictEqual(wnTask5.title, 'reunión');
 assert.strictEqual(wnTask5.duration, 120);
 assert.strictEqual(wnTask5.dueTime, '10:00');
+assert.strictEqual(wnTask5.dueDate, todayStr);
 
-// 29d: Syntax tokenization for word number duration and time
+// 29d: Direct time range parsing (e.g. "10-12", "at 10-12", "10:00-12:00", "10:30-11:15")
+const trTask1 = parseNaturalLanguageTask('task 10-12');
+assert.strictEqual(trTask1.title, 'task');
+assert.strictEqual(trTask1.dueTime, '10:00');
+assert.strictEqual(trTask1.duration, 120);
+assert.strictEqual(trTask1.dueDate, todayStr);
+
+const trTask2 = parseNaturalLanguageTask('task at 10-12');
+assert.strictEqual(trTask2.title, 'task');
+assert.strictEqual(trTask2.dueTime, '10:00');
+assert.strictEqual(trTask2.duration, 120);
+assert.strictEqual(trTask2.dueDate, todayStr);
+
+const trTask3 = parseNaturalLanguageTask('meeting 10:00-12:00');
+assert.strictEqual(trTask3.title, 'meeting');
+assert.strictEqual(trTask3.dueTime, '10:00');
+assert.strictEqual(trTask3.duration, 120);
+assert.strictEqual(trTask3.dueDate, todayStr);
+
+const trTask4 = parseNaturalLanguageTask('call 10:30-11:15');
+assert.strictEqual(trTask4.title, 'call');
+assert.strictEqual(trTask4.dueTime, '10:30');
+assert.strictEqual(trTask4.duration, 45);
+assert.strictEqual(trTask4.dueDate, todayStr);
+
+const trTask5 = parseNaturalLanguageTask('Doctor 2026-10-15 at 10-12');
+assert.strictEqual(trTask5.title, 'Doctor');
+assert.strictEqual(trTask5.dueTime, '10:00');
+assert.strictEqual(trTask5.duration, 120);
+assert.strictEqual(trTask5.dueDate, '2026-10-15');
+
+// 29e: Syntax tokenization for word number duration and time
 const wnTokens = tokenizeTaskInput('two hours task at 10');
 const wnDurToken = wnTokens.find((t) => t.type === 'duration');
 const wnTimeToken = wnTokens.find((t) => t.type === 'time');
@@ -720,6 +756,12 @@ assert.strictEqual(wnDurToken.text, 'two hours');
 assert.ok(wnTimeToken, 'Should recognize "at 10" as time token');
 assert.strictEqual(wnTimeToken.text, 'at 10');
 assert.strictEqual(wnTokens.map((t) => t.text).join(''), 'two hours task at 10', 'Tokenization text invariant must hold');
+
+const trTokens = tokenizeTaskInput('task 10-12');
+const trTimeToken = trTokens.find((t) => t.type === 'time');
+assert.ok(trTimeToken, 'Should recognize "10-12" as time token');
+assert.strictEqual(trTimeToken.text, '10-12');
+assert.strictEqual(trTokens.map((t) => t.text).join(''), 'task 10-12', 'Tokenization text invariant must hold');
 
 console.log('Test 29: Hours Range Display, Word Number Duration Parsing & Tokenization: PASSED');
 

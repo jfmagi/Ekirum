@@ -86,8 +86,9 @@ const PATTERNS: {
   {
     type: 'time',
     regex: new RegExp(
-      `${WB_S}(?:` +
-        `(?:(?:at|w|o|al|a)\\s+)?(?:noon|midnight|południe|poludnie|północy|polnocy|mediodía|mediodia|medianoche)` +
+      `(?<!\\d{4}-)${WB_S}(?:` +
+        `(?:(?:at|o|a\\s+las?|from|od|de)\\s+)?(?:[01]?\\d|2[0-3])(?::[0-5]\\d)?\\s*(?:am|pm)?\\s*(?:-|–|—|to|do|a|aż\\s+do|az\\s+do|hasta)\\s*(?:[01]?\\d|2[0-3])(?::[0-5]\\d)?\\s*(?:am|pm)?(?!-\\d{2})` +
+        `|(?:(?:at|w|o|al|a)\\s+)?(?:noon|midnight|południe|poludnie|północy|polnocy|mediodía|mediodia|medianoche)` +
         `|(?:(?:at|o|a\\s+las?)\\s+)?(?:[01]?\\d|2[0-3]):[0-5]\\d` +
         `|(?:(?:at|o|a\\s+las?)\\s+)?\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|rano|po\\s+południu|po\\s+poludniu|popołudniu|wieczorem|de\\s+la\\s+mañana|de\\s+la\\s+manana|de\\s+la\\s+tarde|de\\s+la\\s+noche)` +
         `|(?:at\\s+([01]?\\d|2[0-3])(?::00)?\\s*(?:am|pm)?|a\\s+las?\\s+([01]?\\d|2[0-3])|o\\s+godz(?:inie|\\.)?\\s*([01]?\\d|2[0-3])|o\\s+(1[0-9]|2[0-3])(?::00)?)` +

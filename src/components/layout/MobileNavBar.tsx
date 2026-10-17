@@ -120,7 +120,7 @@ export const MobileNavBar: React.FC = () => {
         <div className="flex-1 flex items-center justify-center">
           <button
             type="button"
-            onClick={() => setQuickAddOpen(true)}
+            onClick={() => setQuickAddOpen(true, currentView === 'today' ? formatLocalDate(new Date()) : undefined)}
             className="w-10 h-10 rounded-full bg-crimson hover:bg-crimson-hover text-white shadow-md flex items-center justify-center transition-all active:scale-90 cursor-pointer focus-visible:ring-2 focus-visible:ring-crimson focus-visible:outline-none"
             title="Quick Add Task"
             aria-label="Quick Add Task"

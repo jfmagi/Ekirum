@@ -222,6 +222,7 @@ export const TaskListView: React.FC = () => {
           key={`${currentView}-${selectedProjectId || 'default'}`}
           inline
           defaultProjectId={selectedProjectId || undefined}
+          defaultDueDate={currentView === 'today' ? todayStr : undefined}
         />
       )}
 
