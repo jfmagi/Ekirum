@@ -596,9 +596,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             }
 
             await get().refreshBackupStatus();
-            // Lifecycle check: auto backup if > 24h & sync foreign devices
             const initSync = await maybeBackupAndSync(false);
-            if (initSync.success && initSync.totalChanges > 0) {
+            if (initSync.success && (initSync.totalChanges > 0 || initSync.filesProcessed > 0)) {
               await get().syncWithDatabase();
             }
             await get().refreshBackupStatus();
@@ -719,7 +718,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         set({ isSyncing: true });
         try {
           const res = await maybeBackupAndSync(force);
-          if (res.totalChanges > 0) {
+          if (force || res.totalChanges > 0 || res.filesProcessed > 0) {
             await get().syncWithDatabase();
           }
           await get().refreshBackupStatus();

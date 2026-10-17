@@ -442,14 +442,14 @@ export const BackupModal: React.FC = () => {
                     <strong>How folder sync works:</strong> Choose a folder inside your <em>iCloud Drive</em>, <em>Dropbox</em>, or <em>Google Drive</em>. Your changes are saved locally in your browser immediately. When you open Ekirum or switch back to this tab, it automatically checks the folder for updates from other devices, and writes daily backup snapshots. Click <strong>Sync Now</strong> anytime to immediately push your latest changes to the folder.
                   </div>
                   <div className="text-[10px] text-stone-500 font-mono">
-                    Folder sync uses the File System Access API (supported in <strong>Chrome</strong>, <strong>Edge</strong>, and <strong>Brave</strong>). In Safari or Firefox, use <em>Download Backup</em> and <em>Restore</em> below.
+                    Folder sync uses the File System Access API (supported in <strong>Chrome</strong>, <strong>Edge</strong>, and <strong>Brave</strong> on desktop and Android). In Safari or Firefox, use <em>Download Backup</em> and <em>Restore</em> below.
                   </div>
                 </div>
               </div>
             ) : (
               /* Unsupported Browser Notice (Safari/Firefox) */
               <div className="border border-stone-200 rounded-card p-3.5 bg-stone-50/60 text-xs space-y-1.5">
-                <div className="font-medium text-stone-700">Automatic folder selection is available in Chrome, Edge, and Brave</div>
+                <div className="font-medium text-stone-700">Automatic folder selection is available in Chrome, Edge, and Brave (desktop and Android)</div>
                 <p className="text-stone-600 font-sans leading-relaxed text-[11px]">
                   In Safari or Firefox, you can easily save and restore your data anytime using the <strong>Download Backup</strong> and <strong>Restore & Merge</strong> buttons below.
                 </p>

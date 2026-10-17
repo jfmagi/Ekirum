@@ -134,10 +134,16 @@ export async function pickBackupDirectory(): Promise<{ success: boolean; name?: 
   }
 
   try {
-    const handle = await (window as any).showDirectoryPicker({
-      mode: 'readwrite',
-      startIn: 'documents',
-    });
+    let handle: FileSystemDirectoryHandle | null = null;
+    try {
+      handle = await (window as any).showDirectoryPicker({
+        mode: 'readwrite',
+        startIn: 'documents',
+      });
+    } catch (pickerErr: any) {
+      if (pickerErr.name === 'AbortError') throw pickerErr;
+      handle = await (window as any).showDirectoryPicker();
+    }
 
     if (!handle) {
       return { success: false, error: 'No directory selected.' };
@@ -207,6 +213,7 @@ export async function atomicWriteFile(
       await handle.removeEntry(tmpName).catch(() => {});
     }
   } catch {
+    await handle.removeEntry(tmpName).catch(() => {});
     // Direct write fallback
     const fileHandle = await handle.getFileHandle(fileName, { create: true });
     const writable = await (fileHandle as any).createWritable();
@@ -337,6 +344,7 @@ let isBackupSyncRunning = false;
 export interface BackupAndSyncResult {
   success: boolean;
   totalChanges: number;
+  filesProcessed: number;
 }
 
 /**
@@ -371,7 +379,7 @@ export async function syncDeviceFiles(
     let filesFailed = 0;
 
     const syncMtimesRecord = await db.settings.get('deviceSyncMtimes');
-    const syncMtimes: Record<string, number> =
+    const syncMtimes: Record<string, any> =
       syncMtimesRecord?.value && typeof syncMtimesRecord.value === 'object'
         ? { ...syncMtimesRecord.value }
         : {};
@@ -390,7 +398,10 @@ export async function syncDeviceFiles(
       ) {
         try {
           const file = await entry.getFile();
-          const prevMtime = syncMtimes[entry.name] || 0;
+          const prevMeta = syncMtimes[entry.name];
+          const prevMtime = typeof prevMeta === 'number' ? prevMeta : (prevMeta?.mtime || 0);
+          const prevSize = typeof prevMeta === 'object' && prevMeta !== null ? (prevMeta?.size || 0) : 0;
+          const currentSize = typeof file.size === 'number' ? file.size : 0;
 
           // Reject files exceeding max safe payload size
           if (file.size > MAX_DEVICE_FILE_SIZE) {
@@ -399,8 +410,12 @@ export async function syncDeviceFiles(
             continue;
           }
 
-          // If the file was not modified since last successful import, skip reading and parsing
-          if (file.lastModified <= prevMtime) {
+          const hasSize = typeof file.size === 'number' && file.size > 0;
+          const sizeChanged = hasSize && prevSize > 0 && file.size !== prevSize;
+          const mtimeChanged = file.lastModified > prevMtime;
+
+          // If neither mtime nor size changed, skip reading and parsing
+          if (!mtimeChanged && !sizeChanged) {
             continue;
           }
 
@@ -411,7 +426,7 @@ export async function syncDeviceFiles(
           if (mergeRes.success) {
             filesProcessed++;
             totalMergedChanges += mergeRes.totalChanges;
-            syncMtimes[entry.name] = file.lastModified;
+            syncMtimes[entry.name] = { mtime: file.lastModified, size: currentSize };
             mtimesChanged = true;
           } else {
             filesFailed++;
@@ -450,24 +465,25 @@ export async function syncDeviceFiles(
  */
 export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncResult> {
   if (isBackupSyncRunning) {
-    return { success: false, totalChanges: 0 };
+    return { success: false, totalChanges: 0, filesProcessed: 0 };
   }
 
   isBackupSyncRunning = true;
   try {
-    if (!isFileSystemAccessSupported()) return { success: false, totalChanges: 0 };
+    if (!isFileSystemAccessSupported()) return { success: false, totalChanges: 0, filesProcessed: 0 };
 
     const handle = await getSavedDirectoryHandle();
-    if (!handle) return { success: false, totalChanges: 0 };
+    if (!handle) return { success: false, totalChanges: 0, filesProcessed: 0 };
 
-    const perm = await verifyHandlePermission(handle, false);
+    const perm = await verifyHandlePermission(handle, force);
     if (perm !== 'granted') {
-      return { success: false, totalChanges: 0 };
+      return { success: false, totalChanges: 0, filesProcessed: 0 };
     }
 
     // 1. Sync other devices' files from the shared folder into local Dexie
     const syncRes = await syncDeviceFiles(handle, force);
     const totalChanges = syncRes.mergeResult?.totalChanges || 0;
+    const filesProcessed = syncRes.filesProcessed || 0;
 
     // 2. Export our up-to-date state (including any new local changes or merged foreign records) to device-<id>.json
     const deviceWriteOk = await writeDeviceFile(handle);
@@ -476,10 +492,10 @@ export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncRe
     await performDailyBackup(handle, force);
 
     const isSuccess = (syncRes.mergeResult ? syncRes.mergeResult.success : true) && deviceWriteOk;
-    return { success: isSuccess, totalChanges };
+    return { success: isSuccess, totalChanges, filesProcessed };
   } catch (err) {
     console.warn('maybeBackupAndSync error:', err);
-    return { success: false, totalChanges: 0 };
+    return { success: false, totalChanges: 0, filesProcessed: 0 };
   } finally {
     isBackupSyncRunning = false;
   }
