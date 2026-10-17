@@ -516,7 +516,7 @@ export const BackupModal: React.FC = () => {
             <input
               type="file"
               ref={fileInputRef}
-              accept=".json,application/json"
+              accept=".json,application/json,text/plain,*/*"
               onChange={handleFileChange}
               className="hidden"
             />

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ekirum-cache-v4';
+const CACHE_NAME = 'ekirum-cache-v5';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -13,6 +13,12 @@ const PRECACHE_ASSETS = [
   '/fonts/cormorant-garamond-italic-latin.woff2',
   '/fonts/cormorant-garamond-italic-latin-ext.woff2',
 ];
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -43,10 +49,50 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (!url.protocol.startsWith('http')) return;
 
+  // 1. Navigation requests (HTML): Network first to ensure latest deployments load immediately on mobile
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return networkResponse;
+        })
+        .catch(async () => {
+          return (
+            (await caches.match(event.request)) ||
+            (await caches.match('/index.html')) ||
+            (await caches.match('/')) ||
+            (await caches.match(self.registration.scope))
+          );
+        })
+    );
+    return;
+  }
+
+  // 2. Hashed static assets in /assets/: Cache first with network fallback
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return networkResponse;
+        });
+      })
+    );
+    return;
+  }
+
+  // 3. All other requests: Network first with cache fallback
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        // Cache valid responses for offline use
         if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -56,18 +102,8 @@ self.addEventListener('fetch', (event) => {
         return networkResponse;
       })
       .catch(async () => {
-        // Fallback to cache if network is unreachable
         const cachedResponse = await caches.match(event.request);
         if (cachedResponse) return cachedResponse;
-
-        // If navigation request fails, fallback to index.html if cached
-        if (event.request.mode === 'navigate') {
-          const fallback =
-            (await caches.match('/index.html')) ||
-            (await caches.match('/')) ||
-            (await caches.match(self.registration.scope));
-          if (fallback) return fallback;
-        }
         return Promise.reject('Offline and asset not cached');
       })
   );

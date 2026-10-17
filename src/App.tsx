@@ -91,6 +91,8 @@ export const App: React.FC = () => {
     document.addEventListener('visibilitychange', handleSync);
     window.addEventListener('focus', handleSync);
     window.addEventListener('blur', handleSync);
+    window.addEventListener('pageshow', handleSync);
+    window.addEventListener('pagehide', handleSync);
 
     // Periodic check every 15s to pick up changes from other devices while app is open
     const periodicInterval = setInterval(() => {
@@ -103,6 +105,8 @@ export const App: React.FC = () => {
       document.removeEventListener('visibilitychange', handleSync);
       window.removeEventListener('focus', handleSync);
       window.removeEventListener('blur', handleSync);
+      window.removeEventListener('pageshow', handleSync);
+      window.removeEventListener('pagehide', handleSync);
       clearInterval(periodicInterval);
     };
   }, [initStorage, triggerBackupAndSync, refreshBackupStatus]);
