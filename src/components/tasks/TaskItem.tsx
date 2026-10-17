@@ -1,10 +1,11 @@
 import React from 'react';
 import { Task, Priority } from '../../types';
 import { useEkirumStore } from '../../store/useEkirumStore';
-import { formatDueDateDisplay, formatLocalDate } from '../../lib/dateParser';
+import { formatDueDateDisplay, formatLocalDate, formatDuration } from '../../lib/dateParser';
 import {
   Check,
   Calendar,
+  Timer,
   Tag,
   CheckSquare,
   Trash2,
@@ -140,7 +141,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({ task, onOpenDetai
           )}
 
           {/* Metadata Row (only if relevant metadata exists) */}
-          {(task.dueDate || project || subtasksTotal > 0 || (task.labels && task.labels.length > 0) || task.priority !== 'p4' || (task.recurrence && task.recurrence !== 'none')) && (
+          {(task.dueDate || project || subtasksTotal > 0 || (task.labels && task.labels.length > 0) || task.priority !== 'p4' || (task.recurrence && task.recurrence !== 'none') || task.duration) && (
             <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] text-stone-500">
               {/* Priority subtle dot if assigned */}
               {task.priority !== 'p4' && (
@@ -165,6 +166,17 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({ task, onOpenDetai
                 >
                   <Calendar size={11} className={isOverdue ? 'text-crimson' : 'text-stone-400'} />
                   <span>{formatDueDateDisplay(task.dueDate, task.dueTime)}</span>
+                </div>
+              )}
+
+              {/* Duration badge */}
+              {task.duration && (
+                <div
+                  className="flex items-center gap-1 font-mono text-[10px] text-blue-800 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200/70"
+                  title={`Estimated duration: ${formatDuration(task.duration)}`}
+                >
+                  <Timer size={10} className="text-blue-600" />
+                  <span>{formatDuration(task.duration)}</span>
                 </div>
               )}
 

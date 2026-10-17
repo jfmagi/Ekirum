@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
-import { parseNaturalLanguageTask, formatDueDateDisplay } from '../../lib/dateParser';
+import { parseNaturalLanguageTask, formatDueDateDisplay, formatDuration } from '../../lib/dateParser';
 import {
   tokenizeTaskInput,
   getTokenClasses,
@@ -12,6 +12,7 @@ import { MAX_LENGTHS } from '../../lib/validation';
 import {
   Calendar,
   Clock,
+  Timer,
   Flag,
   Folder,
   Tag,
@@ -54,6 +55,10 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
   const [explicitRecurrence, setExplicitRecurrence] = useState<Recurrence>('none');
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const datePickerRef = useRef<HTMLDivElement>(null);
+
+  const [explicitDuration, setExplicitDuration] = useState<number | null | undefined>();
+  const [durationPickerOpen, setDurationPickerOpen] = useState(false);
+  const durationPickerRef = useRef<HTMLDivElement>(null);
 
   const [explicitBatchCount, setExplicitBatchCount] = useState<number | undefined>();
   const [numberingStyle, setNumberingStyle] = useState<NumberingStyle>('suffix');
@@ -129,11 +134,14 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
 
   // Close popovers on click outside
   useEffect(() => {
-    if (!datePickerOpen && !priorityMenuOpen && !batchMenuOpen) return;
+    if (!datePickerOpen && !priorityMenuOpen && !batchMenuOpen && !durationPickerOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
       if (datePickerOpen && datePickerRef.current && !datePickerRef.current.contains(target)) {
         setDatePickerOpen(false);
+      }
+      if (durationPickerOpen && durationPickerRef.current && !durationPickerRef.current.contains(target)) {
+        setDurationPickerOpen(false);
       }
       if (priorityMenuOpen && priorityMenuRef.current && !priorityMenuRef.current.contains(target)) {
         setPriorityMenuOpen(false);
@@ -144,7 +152,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [datePickerOpen, priorityMenuOpen, batchMenuOpen]);
+  }, [datePickerOpen, priorityMenuOpen, batchMenuOpen, durationPickerOpen]);
 
   // Sync backdrop horizontal scroll with input
   useEffect(() => {
@@ -179,6 +187,13 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
       : explicitDueTime !== undefined
       ? explicitDueTime
       : parsed.dueTime;
+
+  const effectiveDuration =
+    explicitDuration === null
+      ? undefined
+      : explicitDuration !== undefined
+      ? explicitDuration
+      : parsed.duration;
 
   const effectivePriority = explicitPriority || parsed.priority || 'p4';
   const effectiveRecurrence = explicitRecurrence !== 'none' ? explicitRecurrence : (parsed.recurrence || 'none');
@@ -217,6 +232,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
           projectId: effectiveProjectId,
           dueDate: finalDueDate,
           dueTime: effectiveDueTime,
+          duration: effectiveDuration,
           priority: effectivePriority,
           recurrence: effectiveRecurrence,
           labels: parsed.labels,
@@ -228,6 +244,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
         projectId: effectiveProjectId,
         dueDate: finalDueDate,
         dueTime: effectiveDueTime,
+        duration: effectiveDuration,
         priority: effectivePriority,
         recurrence: effectiveRecurrence,
         labels: parsed.labels,
@@ -238,10 +255,12 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
     setExplicitPriority(undefined);
     setExplicitDueDate(defaultDueDate);
     setExplicitDueTime(undefined);
+    setExplicitDuration(undefined);
     setExplicitRecurrence('none');
     setExplicitBatchCount(undefined);
     setStartNumber(1);
     setDatePickerOpen(false);
+    setDurationPickerOpen(false);
     setPriorityMenuOpen(false);
     setBatchMenuOpen(false);
 
@@ -375,6 +394,13 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 text-stone-700 text-[11px] border border-stone-200 font-mono">
                 <Folder size={11} className="text-stone-500" />
                 @{parsed.projectQuery}
+              </span>
+            )}
+
+            {parsed.duration && explicitDuration !== null && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 text-[11px] border border-blue-200 font-mono">
+                <Timer size={11} className="text-blue-600" />
+                {formatDuration(effectiveDuration)}
               </span>
             )}
 
@@ -634,6 +660,124 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                       >
                         Done
                       </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Mini Duration Picker */}
+              <div className="relative inline-flex items-center" ref={durationPickerRef}>
+                <button
+                  type="button"
+                  onClick={() => setDurationPickerOpen(!durationPickerOpen)}
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-mac border transition-all cursor-pointer ${
+                    effectiveDuration
+                      ? 'bg-blue-500/10 text-blue-900 border-blue-300/80 font-medium shadow-2xs'
+                      : 'bg-stone-50 hover:bg-stone-100 text-stone-600 border-stone-200'
+                  }`}
+                  title="Estimated task duration"
+                  aria-label="Estimated task duration"
+                  aria-expanded={durationPickerOpen}
+                >
+                  <Timer size={12} className={effectiveDuration ? 'text-blue-700' : 'text-stone-500'} />
+                  <span>{effectiveDuration ? formatDuration(effectiveDuration) : 'Duration'}</span>
+                </button>
+
+                {/* Quick clear button if duration is assigned */}
+                {effectiveDuration && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExplicitDuration(null);
+                    }}
+                    className="ml-1 p-0.5 text-stone-400 hover:text-stone-700 hover:bg-stone-200/50 rounded cursor-pointer transition-colors"
+                    title="Remove duration"
+                    aria-label="Remove task duration"
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+
+                {/* Duration Popover */}
+                {durationPickerOpen && (
+                  <div
+                    className={`fixed inset-x-3 bottom-24 sm:absolute sm:inset-auto sm:left-0 ${
+                      inline ? 'sm:top-full sm:mt-1.5' : 'sm:bottom-full sm:mb-1.5'
+                    } w-auto sm:w-64 max-w-sm mx-auto sm:mx-0 bg-white rounded-sheet border border-stone-200/90 shadow-modal p-3.5 z-50 text-xs font-sans space-y-3 animate-in fade-in zoom-in-95 duration-100`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between pb-2 border-b border-stone-100">
+                      <div className="flex items-center gap-1.5 font-medium text-charcoal text-xs">
+                        <Timer size={13} className="text-blue-600" />
+                        <span>Task Duration</span>
+                      </div>
+                      {effectiveDuration && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExplicitDuration(null);
+                            setDurationPickerOpen(false);
+                          }}
+                          className="text-[10px] text-stone-400 hover:text-stone-600 underline cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-medium uppercase tracking-wider text-stone-400">
+                        Quick Presets
+                      </label>
+                      <div className="grid grid-cols-4 gap-1">
+                        {[15, 25, 30, 45, 60, 90, 120, 180].map((mins) => (
+                          <button
+                            key={mins}
+                            type="button"
+                            onClick={() => {
+                              setExplicitDuration(mins);
+                              setDurationPickerOpen(false);
+                            }}
+                            className={`py-1 rounded-mac text-xs font-medium border transition-colors cursor-pointer text-center ${
+                              effectiveDuration === mins
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200'
+                            }`}
+                          >
+                            {formatDuration(mins)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Custom Duration Input */}
+                    <div className="space-y-1 pt-1 border-t border-stone-100">
+                      <label className="text-[10px] font-medium uppercase tracking-wider text-stone-400">
+                        Custom Minutes
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={1440}
+                          placeholder="e.g. 50"
+                          value={effectiveDuration || ''}
+                          onChange={(e) => {
+                            const val = e.target.value ? parseInt(e.target.value, 10) : null;
+                            setExplicitDuration(val && !isNaN(val) && val > 0 ? Math.min(val, 1440) : null);
+                          }}
+                          className="flex-1 bg-stone-50 border border-stone-200 hover:border-stone-300 focus:border-stone-400 focus:bg-white rounded-mac px-2.5 py-1 text-xs text-charcoal outline-none transition-colors"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setDurationPickerOpen(false)}
+                          className="px-2.5 py-1 text-xs font-medium text-white bg-charcoal hover:bg-stone-800 rounded-mac transition-colors cursor-pointer"
+                        >
+                          Done
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

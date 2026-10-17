@@ -4,6 +4,7 @@ export type TokenType =
   | 'text'
   | 'date'
   | 'time'
+  | 'duration'
   | 'recurrence'
   | 'priority'
   | 'project'
@@ -89,6 +90,22 @@ const PATTERNS: {
         `|(?:(?:at|o|a\\s+las?)\\s+)?(?:[01]?\\d|2[0-3]):[0-5]\\d` +
         `|(?:(?:at|o|a\\s+las?)\\s+)?\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|rano|po\\s+południu|po\\s+poludniu|popołudniu|wieczorem|de\\s+la\\s+mañana|de\\s+la\\s+manana|de\\s+la\\s+tarde|de\\s+la\\s+noche)` +
         `|(?:at\\s+([01]?\\d|2[0-3])(?::00)?\\s*(?:am|pm)?|a\\s+las?\\s+([01]?\\d|2[0-3])|o\\s+godz(?:inie|\\.)?\\s*([01]?\\d|2[0-3])|o\\s+(1[0-9]|2[0-3])(?::00)?)` +
+      `)${WB_E}`,
+      'giu'
+    ),
+  },
+  // 6b. Duration commands (English, Polish, Spanish: e.g. 1h30m, 45m, 30min, 1.5h, for 2 hours, ~1h, przez 30 minut)
+  {
+    type: 'duration',
+    regex: new RegExp(
+      `${WB_S}(?:` +
+        `(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?\\d+(?:\\.\\d+)?\\s*(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)\\s*(?:and\\s+|i\\s+|y\\s+)?\\d+\\s*(?:m|mins?|minutes?|minut[a-yę]?|minutos?)` +
+        `|` +
+        `(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?\\d+(?:\\.\\d+)?\\s*(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)` +
+        `|` +
+        `(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?\\d+\\s*(?:mins?|minutes?|minut[a-yę]?|minutos?)` +
+        `|` +
+        `(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?\\d{1,3}\\s*m` +
       `)${WB_E}`,
       'giu'
     ),
@@ -198,6 +215,8 @@ export function getTokenClasses(token: SyntaxToken): string {
       return 'text-amber-800 bg-amber-500/15 rounded-xs font-normal';
     case 'time':
       return 'text-sky-800 bg-sky-500/15 rounded-xs font-normal';
+    case 'duration':
+      return 'text-blue-800 bg-blue-500/15 rounded-xs font-normal';
     case 'project':
       return 'text-indigo-700 bg-indigo-500/15 rounded-xs font-normal';
     case 'label':

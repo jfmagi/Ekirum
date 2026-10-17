@@ -4,6 +4,7 @@ export interface ParsedTaskInput {
   title: string;
   dueDate?: string; // YYYY-MM-DD
   dueTime?: string; // HH:mm
+  duration?: number; // Estimated duration in minutes
   recurrence?: Recurrence;
   priority?: Priority;
   projectQuery?: string;
@@ -163,12 +164,100 @@ function addMonthsToDate(d: Date, months: number): Date {
   return new Date(targetYear, targetMonth - 1, targetDay);
 }
 
+/**
+ * Formats a duration in minutes into a concise human-readable string.
+ * e.g. 15 -> "15m", 60 -> "1h", 90 -> "1h 30m", 120 -> "2h"
+ */
+export function formatDuration(minutes?: number): string {
+  if (!minutes || typeof minutes !== 'number' || isNaN(minutes) || minutes <= 0) {
+    return '';
+  }
+  const rounded = Math.round(minutes);
+  const hrs = Math.floor(rounded / 60);
+  const mins = rounded % 60;
+
+  if (hrs > 0 && mins > 0) {
+    return `${hrs}h ${mins}m`;
+  }
+  if (hrs > 0) {
+    return `${hrs}h`;
+  }
+  return `${mins}m`;
+}
+
+/**
+ * Parses natural language task duration in minutes.
+ * Supports formats across English, Polish, and Spanish:
+ * - Combined: "1h30m", "1h 30m", "for 1h 30m", "1 godzina 30 minut", "przez 1h 30 min", "1 hora 30 minutos"
+ * - Hours: "1h", "2h", "1.5h", "for 2 hours", "~1h", "przez 2 godziny", "por 1 hora"
+ * - Minutes: "15m", "25m", "30m", "45m", "60m", "90m", "120m", "for 45 mins", "~30m", "przez 30 minut", "por 15 minutos"
+ */
+export function parseDuration(text: string): { duration: number; rawMatch: string } | null {
+  // 1. Combined hours and minutes
+  const combinedRegex = new RegExp(
+    `${WB_S}(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?(\\d+(?:\\.\\d+)?)\\s*(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)\\s*(?:and\\s+|i\\s+|y\\s+)?(\\d+)\\s*(?:m|mins?|minutes?|minut[a-yę]?|minutos?)${WB_E}`,
+    'iu'
+  );
+  const combinedMatch = text.match(combinedRegex);
+  if (combinedMatch) {
+    const hours = parseFloat(combinedMatch[1]);
+    const minutes = parseInt(combinedMatch[2], 10);
+    const totalMinutes = Math.round(hours * 60 + minutes);
+    if (totalMinutes > 0 && totalMinutes <= 1440) {
+      return { duration: totalMinutes, rawMatch: combinedMatch[0] };
+    }
+  }
+
+  // 2. Hours only (e.g. 1h, 2h, 1.5h, for 2 hours, ~1h, przez 2 godziny)
+  const hoursRegex = new RegExp(
+    `${WB_S}(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?(\\d+(?:\\.\\d+)?)\\s*(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)${WB_E}`,
+    'iu'
+  );
+  const hoursMatch = text.match(hoursRegex);
+  if (hoursMatch) {
+    const hours = parseFloat(hoursMatch[1]);
+    const totalMinutes = Math.round(hours * 60);
+    if (totalMinutes > 0 && totalMinutes <= 1440) {
+      return { duration: totalMinutes, rawMatch: hoursMatch[0] };
+    }
+  }
+
+  // 3. Minutes with explicit unit (e.g. 30min, 45 mins, for 15 minutes, przez 30 minut)
+  const minRegex = new RegExp(
+    `${WB_S}(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?(\\d+)\\s*(?:mins?|minutes?|minut[a-yę]?|minutos?)${WB_E}`,
+    'iu'
+  );
+  const minMatch = text.match(minRegex);
+  if (minMatch) {
+    const totalMinutes = parseInt(minMatch[1], 10);
+    if (totalMinutes > 0 && totalMinutes <= 1440) {
+      return { duration: totalMinutes, rawMatch: minMatch[0] };
+    }
+  }
+
+  // 4. Short minutes with optional prefix (e.g. 15m, 25m, 30m, 45m, 60m, 90m, 120m, for 30m, ~45m)
+  const shortMinRegex = new RegExp(
+    `${WB_S}(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?(\\d{1,3})\\s*m${WB_E}`,
+    'iu'
+  );
+  const shortMinMatch = text.match(shortMinRegex);
+  if (shortMinMatch) {
+    const totalMinutes = parseInt(shortMinMatch[1], 10);
+    if (totalMinutes > 0 && totalMinutes <= 1440) {
+      return { duration: totalMinutes, rawMatch: shortMinMatch[0] };
+    }
+  }
+
+  return null;
+}
+
 export function parseNaturalLanguageTask(input: string): ParsedTaskInput {
   let text = input.trim();
   let priority: Priority | undefined = undefined;
   let recurrence: Recurrence | undefined = undefined;
   let dueDate: string | undefined = undefined;
   let dueTime: string | undefined = undefined;
+  let duration: number | undefined = undefined;
   let projectQuery: string | undefined = undefined;
   let batchCount: number | undefined = undefined;
   const labels: string[] = [];
@@ -203,6 +292,13 @@ export function parseNaturalLanguageTask(input: string): ParsedTaskInput {
   for (const match of labelMatches) {
     labels.push(match[1]);
     text = text.replace(match[0], '');
+  }
+
+  // 3b. Extract Duration (e.g. 30m, 1h, 1.5h, 1h30m, for 45 mins)
+  const durationMatch = parseDuration(text);
+  if (durationMatch) {
+    duration = durationMatch.duration;
+    text = text.replace(durationMatch.rawMatch, '');
   }
 
   const FULL_DAYS_P = Object.keys(FULL_DAYS_MAP).join('|');
@@ -522,10 +618,10 @@ export function parseNaturalLanguageTask(input: string): ParsedTaskInput {
     }
   }
 
-  // Clean extra whitespace and trailing prepositions attached to stripped date/time
+  // Clean extra whitespace and trailing prepositions attached to stripped date/time/duration
   const cleanTitle = text
     .replace(/\s+/g, ' ')
-    .replace(new RegExp(`${WB_S}(?:on|at|by|for|starting|start|w|we|o|na|za|od|do|el|la|los|las|en|de|para|por)$`, 'iu'), '')
+    .replace(new RegExp(`${WB_S}(?:on|at|by|for|starting|start|w|we|o|na|za|od|do|przez|el|la|los|las|en|de|para|por|durante)$`, 'iu'), '')
     .replace(/^(?:starting|start)\s+/iu, '')
     .trim();
 
@@ -533,6 +629,7 @@ export function parseNaturalLanguageTask(input: string): ParsedTaskInput {
     title: cleanTitle || input.trim(),
     dueDate,
     dueTime,
+    duration,
     recurrence,
     priority,
     projectQuery,

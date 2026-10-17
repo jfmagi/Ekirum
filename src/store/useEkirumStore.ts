@@ -255,6 +255,7 @@ export interface EkirumStore {
     notes?: string;
     dueDate?: string;
     dueTime?: string;
+    duration?: number;
     recurrence?: Recurrence;
     recurrenceAnchorDay?: number;
     priority?: Priority;
@@ -763,6 +764,10 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           : undefined;
 
         const now = new Date().toISOString();
+        const duration =
+          typeof data.duration === 'number' && !isNaN(data.duration) && data.duration > 0
+            ? Math.min(Math.floor(data.duration), 1440)
+            : undefined;
 
         const newTask: Task = {
           id: generateUuid('task'),
@@ -771,6 +776,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           notes: data.notes ? clampString(data.notes, MAX_LENGTHS.TASK_NOTES) : '',
           dueDate: effectiveDueDate,
           dueTime: data.dueTime,
+          duration,
           recurrence: data.recurrence || 'none',
           recurrenceAnchorDay,
           priority: data.priority || 'p4',
@@ -806,6 +812,12 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         }
         if (sanitizedUpdates.labels !== undefined) {
           sanitizedUpdates.labels = sanitizedUpdates.labels.map((l) => clampString(l.trim(), MAX_LENGTHS.LABEL)).filter(Boolean);
+        }
+        if (sanitizedUpdates.duration !== undefined) {
+          sanitizedUpdates.duration =
+            typeof sanitizedUpdates.duration === 'number' && !isNaN(sanitizedUpdates.duration) && sanitizedUpdates.duration > 0
+              ? Math.min(Math.floor(sanitizedUpdates.duration), 1440)
+              : undefined;
         }
 
         const effectiveRecurrence = sanitizedUpdates.recurrence !== undefined ? sanitizedUpdates.recurrence : existing.recurrence;

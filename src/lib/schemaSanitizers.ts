@@ -37,6 +37,10 @@ export function sanitizeTask(raw: any): Task | null {
     priority: ['p1', 'p2', 'p3', 'p4'].includes(raw.priority) ? raw.priority : 'p4',
     dueDate: typeof raw.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.dueDate) ? raw.dueDate : undefined,
     dueTime: typeof raw.dueTime === 'string' && /^\d{2}:\d{2}$/.test(raw.dueTime) ? raw.dueTime : undefined,
+    duration:
+      typeof raw.duration === 'number' && !isNaN(raw.duration) && raw.duration > 0
+        ? Math.min(Math.floor(raw.duration), 1440)
+        : undefined,
     recurrence: ['none', 'daily', 'weekdays', 'weekly', 'monthly'].includes(raw.recurrence) ? raw.recurrence : 'none',
     completed: Boolean(raw.completed),
     completedAt: typeof raw.completedAt === 'string' ? raw.completedAt : undefined,

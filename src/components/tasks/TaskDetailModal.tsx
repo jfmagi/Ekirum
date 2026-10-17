@@ -2,9 +2,12 @@ import React, { useState } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { Task, Priority, Recurrence } from '../../types';
 import { MAX_LENGTHS } from '../../lib/validation';
+import { formatDuration } from '../../lib/dateParser';
 import {
   X,
   Calendar,
+  Clock,
+  Timer,
   Flag,
   Folder,
   CheckSquare,
@@ -204,8 +207,8 @@ export const TaskDetailModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Due Date & Time */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          {/* Due Date, Time & Duration */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-stone-600 uppercase tracking-wider flex items-center gap-1">
                 <Calendar size={11} /> Due Date
@@ -218,8 +221,8 @@ export const TaskDetailModal: React.FC = () => {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-stone-600 uppercase tracking-wider">
-                Due Time
+              <label className="text-[11px] font-medium text-stone-600 uppercase tracking-wider flex items-center gap-1">
+                <Clock size={11} /> Due Time
               </label>
               <input
                 type="time"
@@ -228,6 +231,64 @@ export const TaskDetailModal: React.FC = () => {
                 className="w-full text-xs bg-white border border-stone-200 rounded-mac px-2.5 py-1.5 text-stone-700 focus:outline-none focus:border-stone-400"
               />
             </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium text-stone-600 uppercase tracking-wider flex items-center gap-1">
+                  <Timer size={11} /> Duration
+                </label>
+                {task.duration && (
+                  <button
+                    type="button"
+                    onClick={() => updateTask(task.id, { duration: undefined })}
+                    className="text-[10px] text-stone-400 hover:text-stone-600 underline cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="relative flex items-center">
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  placeholder="Minutes (e.g. 30)"
+                  value={task.duration ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value ? parseInt(e.target.value, 10) : undefined;
+                    updateTask(task.id, {
+                      duration: val && !isNaN(val) && val > 0 ? Math.min(val, 1440) : undefined,
+                    });
+                  }}
+                  className="w-full text-xs bg-white border border-stone-200 rounded-mac px-2.5 py-1.5 text-stone-700 focus:outline-none focus:border-stone-400 pr-14 font-mono"
+                />
+                {task.duration && (
+                  <span className="absolute right-2.5 text-[11px] font-medium text-blue-600 pointer-events-none">
+                    {formatDuration(task.duration)}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Duration Preset Chips */}
+          <div className="flex items-center gap-1 overflow-x-auto -mt-2">
+            <span className="text-[10px] text-stone-400 font-medium uppercase tracking-wider mr-1">
+              Presets:
+            </span>
+            {[15, 25, 30, 45, 60, 90, 120].map((mins) => (
+              <button
+                key={mins}
+                type="button"
+                onClick={() => updateTask(task.id, { duration: mins })}
+                className={`px-2 py-0.5 text-[10px] rounded font-mono border transition-colors cursor-pointer ${
+                  task.duration === mins
+                    ? 'bg-blue-600 text-white border-blue-600 font-semibold'
+                    : 'bg-stone-50 hover:bg-stone-100 text-stone-600 border-stone-200'
+                }`}
+              >
+                {formatDuration(mins)}
+              </button>
+            ))}
           </div>
 
           {/* Notes / Description */}

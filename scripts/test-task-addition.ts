@@ -1,7 +1,8 @@
 import 'fake-indexeddb/auto';
 import assert from 'node:assert';
-import { parseNaturalLanguageTask, formatLocalDate } from '../src/lib/dateParser';
+import { parseNaturalLanguageTask, formatLocalDate, formatDuration, parseDuration } from '../src/lib/dateParser';
 import { useEkirumStore, advanceRecurringTask, getNextRecurrenceDate } from '../src/store/useEkirumStore';
+import { sanitizeTask } from '../src/lib/schemaSanitizers';
 import { Task } from '../src/types';
 
 console.log('🧪 Starting Task Addition & View Filter verification tests...\n');
@@ -564,6 +565,103 @@ in14Days.setDate(in14Days.getDate() + 14);
 assert.strictEqual(rw4.dueDate, formatLocalDate(in14Days));
 
 console.log('Test 27: Relative Weeks and Months ("next week", "za tydzień", "la próxima semana", "za 2 tygodnie"): PASSED');
+
+// Test 28: Task Duration Parsing, Tokenization, Formatting, Store and Recurrence Invariants
+// 28a: Formatting helper
+assert.strictEqual(formatDuration(undefined), '');
+assert.strictEqual(formatDuration(0), '');
+assert.strictEqual(formatDuration(15), '15m');
+assert.strictEqual(formatDuration(45), '45m');
+assert.strictEqual(formatDuration(60), '1h');
+assert.strictEqual(formatDuration(90), '1h 30m');
+assert.strictEqual(formatDuration(120), '2h');
+assert.strictEqual(formatDuration(125), '2h 5m');
+
+// 28b: Natural language duration parsing
+const dur1 = parseNaturalLanguageTask('Read book for 30m');
+assert.strictEqual(dur1.title, 'Read book');
+assert.strictEqual(dur1.duration, 30);
+
+const dur2 = parseNaturalLanguageTask('Study 1.5h tomorrow');
+assert.strictEqual(dur2.title, 'Study');
+assert.strictEqual(dur2.duration, 90);
+
+const dur3 = parseNaturalLanguageTask('Meeting 1h30m p1');
+assert.strictEqual(dur3.title, 'Meeting');
+assert.strictEqual(dur3.duration, 90);
+assert.strictEqual(dur3.priority, 'p1');
+
+const dur4 = parseNaturalLanguageTask('Call for 45 mins');
+assert.strictEqual(dur4.title, 'Call');
+assert.strictEqual(dur4.duration, 45);
+
+const dur5 = parseNaturalLanguageTask('Trening przez 2 godziny');
+assert.strictEqual(dur5.title, 'Trening');
+assert.strictEqual(dur5.duration, 120);
+
+const dur6 = parseNaturalLanguageTask('Tarea por 1 hora');
+assert.strictEqual(dur6.title, 'Tarea');
+assert.strictEqual(dur6.duration, 60);
+
+const dur7 = parseNaturalLanguageTask('Deep work ~45m @Focus');
+assert.strictEqual(dur7.title, 'Deep work');
+assert.strictEqual(dur7.duration, 45);
+assert.strictEqual(dur7.projectQuery, 'Focus');
+
+const dur8 = parseNaturalLanguageTask('Coding 2h 15min');
+assert.strictEqual(dur8.title, 'Coding');
+assert.strictEqual(dur8.duration, 135);
+
+// 28c: Syntax tokenizer invariant & duration token recognition
+const durTokens = tokenizeTaskInput('Write essay for 45m #homework');
+const durSpan = durTokens.find((t) => t.type === 'duration');
+assert.ok(durSpan, 'Must have a duration token');
+assert.strictEqual(durSpan.text, 'for 45m');
+assert.strictEqual(durTokens.map((t) => t.text).join(''), 'Write essay for 45m #homework');
+
+// 28d: Store addTask with duration
+const storeInstance = useEkirumStore.getState();
+const taskWithDuration = storeInstance.addTask({
+  title: 'Task with Duration',
+  duration: 45,
+});
+assert.strictEqual(taskWithDuration.duration, 45);
+
+// 28e: Store updateTask with duration (update and clear)
+storeInstance.updateTask(taskWithDuration.id, { duration: 90 });
+const updatedTask = useEkirumStore.getState().tasks.find((t) => t.id === taskWithDuration.id);
+assert.strictEqual(updatedTask?.duration, 90);
+
+storeInstance.updateTask(taskWithDuration.id, { duration: undefined });
+const clearedTask = useEkirumStore.getState().tasks.find((t) => t.id === taskWithDuration.id);
+assert.strictEqual(clearedTask?.duration, undefined);
+
+// 28f: advanceRecurringTask preserves duration
+const recurringWithDuration: Task = {
+  ...taskWithDuration,
+  duration: 60,
+  recurrence: 'daily',
+  dueDate: '2026-10-15',
+};
+const { completedArchiveTask, activeRecurringTask } = advanceRecurringTask(
+  recurringWithDuration,
+  '2026-10-15',
+  new Date().toISOString()
+);
+assert.strictEqual(completedArchiveTask.duration, 60, 'Archive task must preserve duration');
+assert.strictEqual(activeRecurringTask.duration, 60, 'Active recurring task must preserve duration');
+
+// 28g: Schema sanitizer validates and clamps duration
+const sanitizedValid = sanitizeTask({ id: 'test-1', title: 'Test', duration: 45 });
+assert.strictEqual(sanitizedValid?.duration, 45);
+
+const sanitizedClamped = sanitizeTask({ id: 'test-2', title: 'Test', duration: 2500 });
+assert.strictEqual(sanitizedClamped?.duration, 1440, 'Durations exceeding 24h (1440m) must be clamped');
+
+const sanitizedInvalid = sanitizeTask({ id: 'test-3', title: 'Test', duration: -10 });
+assert.strictEqual(sanitizedInvalid?.duration, undefined, 'Invalid negative durations must be sanitized to undefined');
+
+console.log('Test 28: Task Duration Parsing, Tokenization, Formatting, Store and Recurrence Invariants: PASSED');
 
 console.log('\n🎉 ALL TASK ADDITION & RECURRENCE TESTS PASSED!');
 
