@@ -7,6 +7,8 @@ import {
   parseDuration,
   formatTimeRange,
   formatDueDateDisplay,
+  addMinutesToDateTime,
+  diffInMinutesDateTime,
 } from '../src/lib/dateParser';
 import { useEkirumStore, advanceRecurringTask, getNextRecurrenceDate } from '../src/store/useEkirumStore';
 import { sanitizeTask } from '../src/lib/schemaSanitizers';
@@ -685,69 +687,83 @@ assert.strictEqual(formatDueDateDisplay(undefined, '10:00', 120), '10-12', 'Disp
 assert.strictEqual(formatDueDateDisplay(todayStr, '10:00'), 'Today, 10:00', 'Displays Today, 10:00 without duration');
 assert.strictEqual(formatDueDateDisplay(undefined, '10:00'), '10:00', 'Displays 10:00 without date and without duration');
 
-// 29c: Word numbers duration & time natural language parsing
+// 29c: Word numbers duration & time natural language parsing (dateless tasks remain dateless)
 const wnTask1 = parseNaturalLanguageTask('two hours task at 10');
 assert.strictEqual(wnTask1.title, 'task');
 assert.strictEqual(wnTask1.duration, 120);
 assert.strictEqual(wnTask1.dueTime, '10:00');
-assert.strictEqual(wnTask1.dueDate, todayStr, 'Time without explicit date defaults to todayStr');
+assert.strictEqual(wnTask1.dueDate, undefined, 'Tasks without explicit date must remain dateless');
 
 const wnTask2 = parseNaturalLanguageTask('a two-hour meeting at 14:00');
 assert.strictEqual(wnTask2.title, 'meeting');
 assert.strictEqual(wnTask2.duration, 120);
 assert.strictEqual(wnTask2.dueTime, '14:00');
-assert.strictEqual(wnTask2.dueDate, todayStr);
+assert.strictEqual(wnTask2.dueDate, undefined);
 
 const wnTask3 = parseNaturalLanguageTask('half an hour call at 11');
 assert.strictEqual(wnTask3.title, 'call');
 assert.strictEqual(wnTask3.duration, 30);
 assert.strictEqual(wnTask3.dueTime, '11:00');
-assert.strictEqual(wnTask3.dueDate, todayStr);
+assert.strictEqual(wnTask3.dueDate, undefined);
 
 const wnTask4 = parseNaturalLanguageTask('trening dwie godziny o 18');
 assert.strictEqual(wnTask4.title, 'trening');
 assert.strictEqual(wnTask4.duration, 120);
 assert.strictEqual(wnTask4.dueTime, '18:00');
-assert.strictEqual(wnTask4.dueDate, todayStr);
+assert.strictEqual(wnTask4.dueDate, undefined);
 
 const wnTask5 = parseNaturalLanguageTask('reunión dos horas a las 10');
 assert.strictEqual(wnTask5.title, 'reunión');
 assert.strictEqual(wnTask5.duration, 120);
 assert.strictEqual(wnTask5.dueTime, '10:00');
-assert.strictEqual(wnTask5.dueDate, todayStr);
+assert.strictEqual(wnTask5.dueDate, undefined);
 
 // 29d: Direct time range parsing (e.g. "10-12", "at 10-12", "10:00-12:00", "10:30-11:15")
 const trTask1 = parseNaturalLanguageTask('task 10-12');
 assert.strictEqual(trTask1.title, 'task');
 assert.strictEqual(trTask1.dueTime, '10:00');
 assert.strictEqual(trTask1.duration, 120);
-assert.strictEqual(trTask1.dueDate, todayStr);
+assert.strictEqual(trTask1.dueDate, undefined, 'Time range without date remains dateless');
 
 const trTask2 = parseNaturalLanguageTask('task at 10-12');
 assert.strictEqual(trTask2.title, 'task');
 assert.strictEqual(trTask2.dueTime, '10:00');
 assert.strictEqual(trTask2.duration, 120);
-assert.strictEqual(trTask2.dueDate, todayStr);
+assert.strictEqual(trTask2.dueDate, undefined);
 
 const trTask3 = parseNaturalLanguageTask('meeting 10:00-12:00');
 assert.strictEqual(trTask3.title, 'meeting');
 assert.strictEqual(trTask3.dueTime, '10:00');
 assert.strictEqual(trTask3.duration, 120);
-assert.strictEqual(trTask3.dueDate, todayStr);
+assert.strictEqual(trTask3.dueDate, undefined);
 
 const trTask4 = parseNaturalLanguageTask('call 10:30-11:15');
 assert.strictEqual(trTask4.title, 'call');
 assert.strictEqual(trTask4.dueTime, '10:30');
 assert.strictEqual(trTask4.duration, 45);
-assert.strictEqual(trTask4.dueDate, todayStr);
+assert.strictEqual(trTask4.dueDate, undefined);
 
 const trTask5 = parseNaturalLanguageTask('Doctor 2026-10-15 at 10-12');
 assert.strictEqual(trTask5.title, 'Doctor');
 assert.strictEqual(trTask5.dueTime, '10:00');
 assert.strictEqual(trTask5.duration, 120);
-assert.strictEqual(trTask5.dueDate, '2026-10-15');
+assert.strictEqual(trTask5.dueDate, '2026-10-15', 'Time range with explicit date keeps that date');
 
-// 29e: Syntax tokenization for word number duration and time
+const trTask6 = parseNaturalLanguageTask('task 10-12 today');
+assert.strictEqual(trTask6.title, 'task');
+assert.strictEqual(trTask6.dueTime, '10:00');
+assert.strictEqual(trTask6.duration, 120);
+assert.strictEqual(trTask6.dueDate, todayStr);
+
+// 29e: Date/Time arithmetic helpers for duration menu
+const addRes = addMinutesToDateTime('2026-10-17', '10:00', 120);
+assert.strictEqual(addRes.date, '2026-10-17');
+assert.strictEqual(addRes.time, '12:00');
+
+const diffRes = diffInMinutesDateTime('2026-10-17', '10:00', '2026-10-17', '12:00');
+assert.strictEqual(diffRes, 120);
+
+// 29f: Syntax tokenization for word number duration and time
 const wnTokens = tokenizeTaskInput('two hours task at 10');
 const wnDurToken = wnTokens.find((t) => t.type === 'duration');
 const wnTimeToken = wnTokens.find((t) => t.type === 'time');

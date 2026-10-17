@@ -737,11 +737,6 @@ export function parseNaturalLanguageTask(input: string): ParsedTaskInput {
     }
   }
 
-  // If time was set without an explicit date, initialize schedule starting today
-  if (!dueDate && dueTime) {
-    dueDate = todayStr;
-  }
-
   // Clean extra whitespace and trailing prepositions attached to stripped date/time/duration
   const cleanTitle = text
     .replace(/\s+/g, ' ')
@@ -836,4 +831,54 @@ export function formatDueDateDisplay(dateStr?: string, timeStr?: string, duratio
     return `${label}, ${formattedTime}`;
   }
   return label;
+}
+
+/**
+ * Returns current hour formatted as "HH:00" (e.g. "15:00")
+ */
+export function getCurrentHourTime(date: Date = new Date()): string {
+  return `${String(date.getHours()).padStart(2, '0')}:00`;
+}
+
+/**
+ * Adds minutes to a date (YYYY-MM-DD) and time (HH:mm), correctly wrapping across midnight.
+ */
+export function addMinutesToDateTime(
+  dateStr: string,
+  timeStr: string,
+  minutes: number
+): { date: string; time: string } {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [h, min] = timeStr.split(':').map(Number);
+  const dt = new Date(y, m - 1, d, (isNaN(h) ? 0 : h), (isNaN(min) ? 0 : min) + Math.round(minutes), 0, 0);
+  const resY = dt.getFullYear();
+  const resM = String(dt.getMonth() + 1).padStart(2, '0');
+  const resD = String(dt.getDate()).padStart(2, '0');
+  const resH = String(dt.getHours()).padStart(2, '0');
+  const resMin = String(dt.getMinutes()).padStart(2, '0');
+  return {
+    date: `${resY}-${resM}-${resD}`,
+    time: `${resH}:${resMin}`,
+  };
+}
+
+/**
+ * Calculates the difference in minutes between two date+time pairs.
+ */
+export function diffInMinutesDateTime(
+  startDateStr: string,
+  startTimeStr: string,
+  endDateStr: string,
+  endTimeStr: string
+): number {
+  const [sy, sm, sd] = startDateStr.split('-').map(Number);
+  const [sh, smin] = startTimeStr.split(':').map(Number);
+  const startDt = new Date(sy, sm - 1, sd, (isNaN(sh) ? 0 : sh), (isNaN(smin) ? 0 : smin), 0, 0);
+
+  const [ey, em, ed] = endDateStr.split('-').map(Number);
+  const [eh, emin] = endTimeStr.split(':').map(Number);
+  const endDt = new Date(ey, em - 1, ed, (isNaN(eh) ? 0 : eh), (isNaN(emin) ? 0 : emin), 0, 0);
+
+  const diffMs = endDt.getTime() - startDt.getTime();
+  return Math.round(diffMs / 60000);
 }
