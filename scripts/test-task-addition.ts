@@ -1,6 +1,13 @@
 import 'fake-indexeddb/auto';
 import assert from 'node:assert';
-import { parseNaturalLanguageTask, formatLocalDate, formatDuration, parseDuration } from '../src/lib/dateParser';
+import {
+  parseNaturalLanguageTask,
+  formatLocalDate,
+  formatDuration,
+  parseDuration,
+  formatTimeRange,
+  formatDueDateDisplay,
+} from '../src/lib/dateParser';
 import { useEkirumStore, advanceRecurringTask, getNextRecurrenceDate } from '../src/store/useEkirumStore';
 import { sanitizeTask } from '../src/lib/schemaSanitizers';
 import { Task } from '../src/types';
@@ -662,6 +669,59 @@ const sanitizedInvalid = sanitizeTask({ id: 'test-3', title: 'Test', duration: -
 assert.strictEqual(sanitizedInvalid?.duration, undefined, 'Invalid negative durations must be sanitized to undefined');
 
 console.log('Test 28: Task Duration Parsing, Tokenization, Formatting, Store and Recurrence Invariants: PASSED');
+
+// 29a: formatTimeRange formatting
+assert.strictEqual(formatTimeRange('10:00', 120), '10-12', '10:00 with 120m duration formats to 10-12');
+assert.strictEqual(formatTimeRange('10:00', 60), '10-11', '10:00 with 60m duration formats to 10-11');
+assert.strictEqual(formatTimeRange('09:00', 120), '9-11', '09:00 with 120m duration formats to 9-11');
+assert.strictEqual(formatTimeRange('10:30', 45), '10:30-11:15', '10:30 with 45m duration formats to 10:30-11:15');
+assert.strictEqual(formatTimeRange('10:00', 90), '10:00-11:30', '10:00 with 90m duration formats to 10:00-11:30');
+assert.strictEqual(formatTimeRange('10:00'), '10:00', '10:00 without duration formats to 10:00');
+assert.strictEqual(formatTimeRange(''), '', 'Empty time formats to empty string');
+
+// 29b: formatDueDateDisplay with duration
+assert.strictEqual(formatDueDateDisplay(todayStr, '10:00', 120), 'Today, 10-12', 'Displays Today, 10-12 when duration is 120m');
+assert.strictEqual(formatDueDateDisplay(undefined, '10:00', 120), '10-12', 'Displays 10-12 without date');
+assert.strictEqual(formatDueDateDisplay(todayStr, '10:00'), 'Today, 10:00', 'Displays Today, 10:00 without duration');
+assert.strictEqual(formatDueDateDisplay(undefined, '10:00'), '10:00', 'Displays 10:00 without date and without duration');
+
+// 29c: Word numbers duration & time natural language parsing
+const wnTask1 = parseNaturalLanguageTask('two hours task at 10');
+assert.strictEqual(wnTask1.title, 'task');
+assert.strictEqual(wnTask1.duration, 120);
+assert.strictEqual(wnTask1.dueTime, '10:00');
+
+const wnTask2 = parseNaturalLanguageTask('a two-hour meeting at 14:00');
+assert.strictEqual(wnTask2.title, 'meeting');
+assert.strictEqual(wnTask2.duration, 120);
+assert.strictEqual(wnTask2.dueTime, '14:00');
+
+const wnTask3 = parseNaturalLanguageTask('half an hour call at 11');
+assert.strictEqual(wnTask3.title, 'call');
+assert.strictEqual(wnTask3.duration, 30);
+assert.strictEqual(wnTask3.dueTime, '11:00');
+
+const wnTask4 = parseNaturalLanguageTask('trening dwie godziny o 18');
+assert.strictEqual(wnTask4.title, 'trening');
+assert.strictEqual(wnTask4.duration, 120);
+assert.strictEqual(wnTask4.dueTime, '18:00');
+
+const wnTask5 = parseNaturalLanguageTask('reunión dos horas a las 10');
+assert.strictEqual(wnTask5.title, 'reunión');
+assert.strictEqual(wnTask5.duration, 120);
+assert.strictEqual(wnTask5.dueTime, '10:00');
+
+// 29d: Syntax tokenization for word number duration and time
+const wnTokens = tokenizeTaskInput('two hours task at 10');
+const wnDurToken = wnTokens.find((t) => t.type === 'duration');
+const wnTimeToken = wnTokens.find((t) => t.type === 'time');
+assert.ok(wnDurToken, 'Should recognize "two hours" as duration token');
+assert.strictEqual(wnDurToken.text, 'two hours');
+assert.ok(wnTimeToken, 'Should recognize "at 10" as time token');
+assert.strictEqual(wnTimeToken.text, 'at 10');
+assert.strictEqual(wnTokens.map((t) => t.text).join(''), 'two hours task at 10', 'Tokenization text invariant must hold');
+
+console.log('Test 29: Hours Range Display, Word Number Duration Parsing & Tokenization: PASSED');
 
 console.log('\n🎉 ALL TASK ADDITION & RECURRENCE TESTS PASSED!');
 

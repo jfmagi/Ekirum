@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { Task, Priority } from '../../types';
-import { formatDuration } from '../../lib/dateParser';
+import { formatDuration, formatTimeRange } from '../../lib/dateParser';
 import { TaskItem } from './TaskItem';
 import {
   ChevronLeft,
@@ -655,9 +655,7 @@ export const TaskCalendarView: React.FC = () => {
                         {(task.dueTime || task.duration) && (
                           <span className="text-[9px] sm:text-[10px] text-stone-500 font-mono hidden sm:inline">
                             {task.dueTime
-                              ? task.duration
-                                ? `${task.dueTime} · ${formatDuration(task.duration)}`
-                                : task.dueTime
+                              ? formatTimeRange(task.dueTime, task.duration)
                               : formatDuration(task.duration)}
                           </span>
                         )}

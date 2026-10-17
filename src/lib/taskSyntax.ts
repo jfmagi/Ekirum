@@ -28,6 +28,7 @@ import {
   FULL_DAYS_MAP,
   SHORT_DAYS_MAP,
   MONTHS_MAP,
+  NUM_OR_WORD_P,
 } from './dateParser';
 
 // Unicode word-boundary helpers for multilingual tokenization (supports accents/diacritics in PL & ES)
@@ -94,16 +95,16 @@ const PATTERNS: {
       'giu'
     ),
   },
-  // 6b. Duration commands (English, Polish, Spanish: e.g. 1h30m, 45m, 30min, 1.5h, for 2 hours, ~1h, przez 30 minut)
+  // 6b. Duration commands (English, Polish, Spanish: e.g. 1h30m, 45m, 30min, 1.5h, for 2 hours, two hours, two-hour, ~1h, przez 30 minut)
   {
     type: 'duration',
     regex: new RegExp(
       `${WB_S}(?:` +
-        `(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?\\d+(?:\\.\\d+)?\\s*(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)\\s*(?:and\\s+|i\\s+|y\\s+)?\\d+\\s*(?:m|mins?|minutes?|minut[a-yę]?|minutos?)` +
+        `(?:(?:for|przez|por|durante|czas|a|an)\\s+|~\\s*)?${NUM_OR_WORD_P}(?:-|\\s*)(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)\\s*(?:and\\s+|i\\s+|y\\s+)?${NUM_OR_WORD_P}(?:-|\\s*)(?:m|mins?|minutes?|minut[a-yę]?|minutos?)` +
         `|` +
-        `(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?\\d+(?:\\.\\d+)?\\s*(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)` +
+        `(?:(?:for|przez|por|durante|czas|a|an)\\s+|~\\s*)?${NUM_OR_WORD_P}(?:-|\\s*)(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)` +
         `|` +
-        `(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?\\d+\\s*(?:mins?|minutes?|minut[a-yę]?|minutos?)` +
+        `(?:(?:for|przez|por|durante|czas|a|an)\\s+|~\\s*)?${NUM_OR_WORD_P}(?:-|\\s*)(?:mins?|minutes?|minut[a-yę]?|minutos?)` +
         `|` +
         `(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?\\d{1,3}\\s*m` +
       `)${WB_E}`,

@@ -141,7 +141,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({ task, onOpenDetai
           )}
 
           {/* Metadata Row (only if relevant metadata exists) */}
-          {(task.dueDate || project || subtasksTotal > 0 || (task.labels && task.labels.length > 0) || task.priority !== 'p4' || (task.recurrence && task.recurrence !== 'none') || task.duration) && (
+          {(task.dueDate || task.dueTime || project || subtasksTotal > 0 || (task.labels && task.labels.length > 0) || task.priority !== 'p4' || (task.recurrence && task.recurrence !== 'none') || task.duration) && (
             <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] text-stone-500">
               {/* Priority subtle dot if assigned */}
               {task.priority !== 'p4' && (
@@ -157,15 +157,15 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({ task, onOpenDetai
                 </div>
               )}
 
-              {/* Due date */}
-              {task.dueDate && (
+              {/* Due date and time range */}
+              {(task.dueDate || task.dueTime) && (
                 <div
                   className={`flex items-center gap-1 font-mono ${
                     isOverdue ? 'text-crimson font-medium' : 'text-stone-500'
                   }`}
                 >
                   <Calendar size={11} className={isOverdue ? 'text-crimson' : 'text-stone-400'} />
-                  <span>{formatDueDateDisplay(task.dueDate, task.dueTime)}</span>
+                  <span>{formatDueDateDisplay(task.dueDate, task.dueTime, task.duration)}</span>
                 </div>
               )}
 

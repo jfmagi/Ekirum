@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
-import { parseNaturalLanguageTask, formatDueDateDisplay, formatDuration } from '../../lib/dateParser';
+import { parseNaturalLanguageTask, formatDueDateDisplay, formatDuration, formatTimeRange } from '../../lib/dateParser';
 import {
   tokenizeTaskInput,
   getTokenClasses,
@@ -353,14 +353,14 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
             {parsed.dueDate && explicitDueDate !== null && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 text-stone-700 text-[11px] border border-stone-200 font-mono">
                 <Calendar size={11} className="text-stone-500" />
-                {formatDueDateDisplay(effectiveDueDate, effectiveDueTime)}
+                {formatDueDateDisplay(effectiveDueDate, effectiveDueTime, effectiveDuration)}
               </span>
             )}
 
             {parsed.dueTime && !parsed.dueDate && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-stone-100 text-stone-700 text-[11px] border border-stone-200 font-mono">
                 <Clock size={11} className="text-stone-500" />
-                {parsed.dueTime}
+                {formatTimeRange(parsed.dueTime, effectiveDuration)}
               </span>
             )}
 
@@ -450,7 +450,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                 >
                   <Calendar size={12} className={effectiveDueDate ? 'text-amber-700' : 'text-stone-500'} />
                   <span>
-                    {effectiveDueDate ? formatDueDateDisplay(effectiveDueDate, effectiveDueTime) : 'Date & hour'}
+                    {effectiveDueDate ? formatDueDateDisplay(effectiveDueDate) : 'Date & hour'}
                   </span>
                   {effectiveRecurrence !== 'none' && (
                     <span className="inline-flex items-center gap-0.5 text-[10px] font-mono text-emerald-800 bg-emerald-100/70 px-1 py-0.2 rounded">
@@ -461,7 +461,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                   {effectiveDueTime && (
                     <span className="inline-flex items-center gap-0.5 text-[10px] font-mono text-stone-700 bg-stone-200/60 px-1 py-0.2 rounded">
                       <Clock size={9} />
-                      {effectiveDueTime}
+                      {formatTimeRange(effectiveDueTime, effectiveDuration)}
                     </span>
                   )}
                 </button>
@@ -650,7 +650,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                     <div className="pt-2 border-t border-stone-100 flex items-center justify-between">
                       <span className="text-[10px] font-mono text-stone-500 truncate max-w-[170px]">
                         {effectiveDueDate
-                          ? `${formatDueDateDisplay(effectiveDueDate, effectiveDueTime)}${effectiveDueTime ? ` · ${effectiveDueTime}` : ''}`
+                          ? formatDueDateDisplay(effectiveDueDate, effectiveDueTime, effectiveDuration)
                           : 'No date assigned'}
                       </span>
                       <button

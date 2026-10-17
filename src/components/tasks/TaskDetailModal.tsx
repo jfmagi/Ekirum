@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { Task, Priority, Recurrence } from '../../types';
 import { MAX_LENGTHS } from '../../lib/validation';
-import { formatDuration } from '../../lib/dateParser';
+import { formatDuration, formatTimeRange } from '../../lib/dateParser';
 import {
   X,
   Calendar,
@@ -290,6 +290,13 @@ export const TaskDetailModal: React.FC = () => {
               </button>
             ))}
           </div>
+
+          {task.dueTime && task.duration && (
+            <div className="text-[11px] font-mono text-stone-500 bg-stone-50 px-2.5 py-1 rounded border border-stone-200/60 flex items-center gap-1.5 -mt-1">
+              <Clock size={11} className="text-stone-400" />
+              <span>Time window: <strong className="text-stone-700">{formatTimeRange(task.dueTime, task.duration)}</strong></span>
+            </div>
+          )}
 
           {/* Notes / Description */}
           <div className="space-y-1.5">

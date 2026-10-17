@@ -185,53 +185,130 @@ export function formatDuration(minutes?: number): string {
   return `${mins}m`;
 }
 
+const WORD_NUMBERS_MAP: Record<string, number> = {
+  // English
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  half: 0.5,
+  'half an': 0.5,
+  'half a': 0.5,
+
+  // Polish
+  jedna: 1,
+  jedną: 1,
+  jedne: 1,
+  jeden: 1,
+  dwa: 2,
+  dwie: 2,
+  trzy: 3,
+  cztery: 4,
+  pięć: 5,
+  piec: 5,
+  sześć: 6,
+  szesc: 6,
+  siedem: 7,
+  osiem: 8,
+  dziewięć: 9,
+  dziewiec: 9,
+  dziesięć: 10,
+  dziesiec: 10,
+  pół: 0.5,
+  pol: 0.5,
+
+  // Spanish
+  un: 1,
+  una: 1,
+  uno: 1,
+  dos: 2,
+  tres: 3,
+  cuatro: 4,
+  cinco: 5,
+  seis: 6,
+  siete: 7,
+  ocho: 8,
+  nueve: 9,
+  diez: 10,
+  media: 0.5,
+};
+
+function parseNumberOrWord(val: string): number | null {
+  const trimmed = val.trim().toLowerCase();
+  if (WORD_NUMBERS_MAP[trimmed] !== undefined) {
+    return WORD_NUMBERS_MAP[trimmed];
+  }
+  const parsed = parseFloat(trimmed);
+  return !isNaN(parsed) ? parsed : null;
+}
+
+export const NUM_OR_WORD_P =
+  '(?:\\d+(?:\\.\\d+)?|half(?:\\s+an?|\\s+a)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|jedn[aąe]|jeden|dwie|dwa|trzy|cztery|pięć|piec|sześć|szesc|siedem|osiem|dziewięć|dziewiec|dziesięć|dziesiec|pół|pol|un[ao]?|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|media)';
+
 /**
  * Parses natural language task duration in minutes.
  * Supports formats across English, Polish, and Spanish:
  * - Combined: "1h30m", "1h 30m", "for 1h 30m", "1 godzina 30 minut", "przez 1h 30 min", "1 hora 30 minutos"
- * - Hours: "1h", "2h", "1.5h", "for 2 hours", "~1h", "przez 2 godziny", "por 1 hora"
+ * - Hours: "1h", "2h", "1.5h", "two hours", "two-hour", "for 2 hours", "~1h", "przez 2 godziny", "por 1 hora"
  * - Minutes: "15m", "25m", "30m", "45m", "60m", "90m", "120m", "for 45 mins", "~30m", "przez 30 minut", "por 15 minutos"
  */
 export function parseDuration(text: string): { duration: number; rawMatch: string } | null {
   // 1. Combined hours and minutes
   const combinedRegex = new RegExp(
-    `${WB_S}(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?(\\d+(?:\\.\\d+)?)\\s*(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)\\s*(?:and\\s+|i\\s+|y\\s+)?(\\d+)\\s*(?:m|mins?|minutes?|minut[a-yę]?|minutos?)${WB_E}`,
+    `${WB_S}(?:(?:for|przez|por|durante|czas|a|an)\\s+|~\\s*)?(${NUM_OR_WORD_P})(?:-|\\s*)(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)\\s*(?:and\\s+|i\\s+|y\\s+)?(${NUM_OR_WORD_P})(?:-|\\s*)(?:m|mins?|minutes?|minut[a-yę]?|minutos?)${WB_E}`,
     'iu'
   );
   const combinedMatch = text.match(combinedRegex);
   if (combinedMatch) {
-    const hours = parseFloat(combinedMatch[1]);
-    const minutes = parseInt(combinedMatch[2], 10);
-    const totalMinutes = Math.round(hours * 60 + minutes);
-    if (totalMinutes > 0 && totalMinutes <= 1440) {
-      return { duration: totalMinutes, rawMatch: combinedMatch[0] };
+    const hours = parseNumberOrWord(combinedMatch[1]);
+    const minutes = parseNumberOrWord(combinedMatch[2]);
+    if (hours !== null && minutes !== null) {
+      const totalMinutes = Math.round(hours * 60 + minutes);
+      if (totalMinutes > 0 && totalMinutes <= 1440) {
+        return { duration: totalMinutes, rawMatch: combinedMatch[0] };
+      }
     }
   }
 
-  // 2. Hours only (e.g. 1h, 2h, 1.5h, for 2 hours, ~1h, przez 2 godziny)
+  // 2. Hours only (e.g. 1h, 2h, 1.5h, two hours, two-hour, for 2 hours, ~1h, przez 2 godziny)
   const hoursRegex = new RegExp(
-    `${WB_S}(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?(\\d+(?:\\.\\d+)?)\\s*(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)${WB_E}`,
+    `${WB_S}(?:(?:for|przez|por|durante|czas|a|an)\\s+|~\\s*)?(${NUM_OR_WORD_P})(?:-|\\s*)(?:h|hrs?|hours?|godz(?:in[a-yę]?)?|horas?)${WB_E}`,
     'iu'
   );
   const hoursMatch = text.match(hoursRegex);
   if (hoursMatch) {
-    const hours = parseFloat(hoursMatch[1]);
-    const totalMinutes = Math.round(hours * 60);
-    if (totalMinutes > 0 && totalMinutes <= 1440) {
-      return { duration: totalMinutes, rawMatch: hoursMatch[0] };
+    const hours = parseNumberOrWord(hoursMatch[1]);
+    if (hours !== null) {
+      const totalMinutes = Math.round(hours * 60);
+      if (totalMinutes > 0 && totalMinutes <= 1440) {
+        return { duration: totalMinutes, rawMatch: hoursMatch[0] };
+      }
     }
   }
 
   // 3. Minutes with explicit unit (e.g. 30min, 45 mins, for 15 minutes, przez 30 minut)
   const minRegex = new RegExp(
-    `${WB_S}(?:(?:for|przez|por|durante|czas)\\s+|~\\s*)?(\\d+)\\s*(?:mins?|minutes?|minut[a-yę]?|minutos?)${WB_E}`,
+    `${WB_S}(?:(?:for|przez|por|durante|czas|a|an)\\s+|~\\s*)?(${NUM_OR_WORD_P})(?:-|\\s*)(?:mins?|minutes?|minut[a-yę]?|minutos?)${WB_E}`,
     'iu'
   );
   const minMatch = text.match(minRegex);
   if (minMatch) {
-    const totalMinutes = parseInt(minMatch[1], 10);
-    if (totalMinutes > 0 && totalMinutes <= 1440) {
-      return { duration: totalMinutes, rawMatch: minMatch[0] };
+    const minutes = parseNumberOrWord(minMatch[1]);
+    if (minutes !== null) {
+      const totalMinutes = Math.round(minutes);
+      if (totalMinutes > 0 && totalMinutes <= 1440) {
+        return { duration: totalMinutes, rawMatch: minMatch[0] };
+      }
     }
   }
 
@@ -638,8 +715,51 @@ export function parseNaturalLanguageTask(input: string): ParsedTaskInput {
   };
 }
 
-export function formatDueDateDisplay(dateStr?: string, timeStr?: string): string {
-  if (!dateStr) return '';
+/**
+ * Formats a start dueTime and duration into a time or hours range string.
+ * e.g.:
+ * - dueTime "10:00", duration 120 (2h) -> "10-12"
+ * - dueTime "10:00", duration 60 (1h)  -> "10-11"
+ * - dueTime "09:00", duration 120 (2h) -> "9-11"
+ * - dueTime "10:30", duration 45m      -> "10:30-11:15"
+ * - dueTime "10:00", duration 90m      -> "10:00-11:30"
+ * - dueTime "10:00", no duration       -> "10:00"
+ */
+export function formatTimeRange(dueTime: string, duration?: number): string {
+  if (!dueTime) return '';
+  if (!duration || typeof duration !== 'number' || isNaN(duration) || duration <= 0) {
+    return dueTime;
+  }
+
+  const [hStr, mStr] = dueTime.split(':');
+  const startH = parseInt(hStr, 10);
+  const startM = parseInt(mStr || '0', 10);
+  if (isNaN(startH)) return dueTime;
+
+  const totalStartMinutes = startH * 60 + startM;
+  const totalEndMinutes = totalStartMinutes + Math.round(duration);
+  const endH = Math.floor(totalEndMinutes / 60) % 24;
+  const endM = totalEndMinutes % 60;
+
+  // If both start and end minutes are 0, format cleanly as hours range: e.g. "10-12"
+  if (startM === 0 && endM === 0) {
+    return `${startH}-${endH}`;
+  }
+
+  // If either has minutes, format in standard time format: e.g. "10:00-11:30" or "10:30-11:15"
+  const startFormatted = `${startH.toString().padStart(2, '0')}:${startM.toString().padStart(2, '0')}`;
+  const endFormatted = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+  return `${startFormatted}-${endFormatted}`;
+}
+
+export function formatDueDateDisplay(dateStr?: string, timeStr?: string, duration?: number): string {
+  if (!dateStr && !timeStr) return '';
+
+  const formattedTime = timeStr ? formatTimeRange(timeStr, duration) : '';
+  if (!dateStr) {
+    return formattedTime;
+  }
+
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
@@ -665,8 +785,8 @@ export function formatDueDateDisplay(dateStr?: string, timeStr?: string): string
     label = targetDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 
-  if (timeStr) {
-    return `${label}, ${timeStr}`;
+  if (formattedTime) {
+    return `${label}, ${formattedTime}`;
   }
   return label;
 }
