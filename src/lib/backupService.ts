@@ -15,6 +15,7 @@ export interface BackupStatus {
   isOverdue: boolean;
   deviceId: string;
   foreignDeviceCount?: number;
+  dailyBackupCount?: number;
 }
 
 /**
@@ -118,14 +119,17 @@ export async function getBackupStatus(): Promise<BackupStatus> {
   );
 
   let foreignDeviceCount = 0;
+  let dailyBackupCount = 0;
   if (permission === 'granted') {
     try {
       const entries = await getDirectoryEntries(handle);
       for (const entry of entries) {
         if (entry.kind === 'file') {
           const c = classifySyncEntry(entry.name, deviceId);
-          if (c.shouldProcess) {
+          if (c.kind === 'device') {
             foreignDeviceCount++;
+          } else if (c.kind === 'snapshot') {
+            dailyBackupCount++;
           }
         }
       }
@@ -143,6 +147,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     isOverdue,
     deviceId,
     foreignDeviceCount,
+    dailyBackupCount,
   };
 }
 

@@ -423,7 +423,12 @@ export const BackupModal: React.FC = () => {
                         <span>
                           • {backupStatus.foreignDeviceCount > 0
                             ? `${backupStatus.foreignDeviceCount} other device file${backupStatus.foreignDeviceCount === 1 ? '' : 's'}`
-                            : '0 other device files in folder'}
+                            : 'No other device files'}
+                        </span>
+                      )}
+                      {permission === 'granted' && backupStatus?.dailyBackupCount !== undefined && backupStatus.dailyBackupCount > 0 && (
+                        <span title="Daily backup archive snapshots (retains the last 14 days)">
+                          • {backupStatus.dailyBackupCount} daily snapshot{backupStatus.dailyBackupCount === 1 ? '' : 's'}
                         </span>
                       )}
                     </div>
