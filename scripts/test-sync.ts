@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import { db, initializeDatabase } from '../src/lib/db';
 import { exportAll, importAndMerge } from '../src/lib/syncEngine';
+import { syncDeviceFiles } from '../src/lib/backupService';
 
 async function runTests() {
   console.log('🧪 Starting Dexie & Sync Engine verification tests...\n');
@@ -350,6 +351,100 @@ async function runTests() {
       `Daily XP cap state lost during multi-device merge: expected 2026-10-12 / 350, got ${finalUser.dailyXpDate} / ${finalUser.dailyXpEarned}`
     );
   }
+
+  // Test 11: syncDeviceFiles forced full resync & snapshot fallback
+  console.log('\nTest 11: syncDeviceFiles forced full resync & snapshot fallback...');
+  const snapshotTask = {
+    id: 'task-from-daily-snapshot',
+    projectId: 'proj-1',
+    title: 'Task from Daily Snapshot',
+    priority: 'p3' as const,
+    labels: ['snapshot'],
+    completed: false,
+    subtasks: [],
+    createdAt: '2026-10-18T10:00:00.000Z',
+    updatedAt: '2026-10-18T10:00:00.000Z',
+    isDeleted: false,
+  };
+
+  const mockSnapshotFiles = [
+    {
+      name: 'backup-2026-10-18.json',
+      lastModified: 1000,
+      content: JSON.stringify({
+        schemaVersion: 1,
+        deviceId: 'device-foreign-snapshot-creator',
+        exportedAt: '2026-10-18T10:00:00.000Z',
+        tables: {
+          tasks: [snapshotTask],
+          projects: [],
+          skills: [],
+          habits: [],
+          habitEvents: [],
+          achievements: [],
+          userProfile: [],
+          libraryItems: [],
+        },
+      }),
+    },
+  ];
+
+  const mockDirHandle = {
+    values: async function* () {
+      for (const f of mockSnapshotFiles) {
+        yield {
+          kind: 'file',
+          name: f.name,
+          getFile: async () => ({
+            name: f.name,
+            size: f.content.length,
+            lastModified: f.lastModified,
+            text: async () => f.content,
+          }),
+        };
+      }
+    },
+  } as any;
+
+  // First sync with snapshot fallback imports the task
+  const snapSyncRes1 = await syncDeviceFiles(mockDirHandle, true, true);
+  if (snapSyncRes1.filesProcessed !== 1 || (snapSyncRes1.mergeResult?.totalChanges || 0) < 1) {
+    throw new Error('Snapshot fallback failed to import task when foreign device file was absent.');
+  }
+  const foundSnapshotTask = await db.tasks.get('task-from-daily-snapshot');
+  if (!foundSnapshotTask || foundSnapshotTask.title !== 'Task from Daily Snapshot') {
+    throw new Error('Task from daily snapshot was not saved to database.');
+  }
+  console.log(`  ✓ Snapshot fallback successfully merged task from backup-2026-10-18.json.`);
+
+  // Second sync with forceFullResync=true re-reads candidate file even when mtime is identical
+  const snapSyncRes2 = await syncDeviceFiles(mockDirHandle, true, true);
+  if (snapSyncRes2.filesProcessed !== 1) {
+    throw new Error('forceFullResync=true should have re-evaluated the file.');
+  }
+  console.log(`  ✓ forceFullResync=true successfully re-evaluated the file without skipping.`);
+
+  // Test 12: Same timestamp with differing content updates record
+  console.log('\nTest 12: Same timestamp with differing content applies update...');
+  const sameTime = '2026-10-18T10:00:00.000Z';
+  const updatedSnapshotTask = {
+    ...snapshotTask,
+    title: 'Updated Title Same Timestamp',
+    updatedAt: sameTime,
+  };
+
+  const sameTimeMergeRes = await importAndMerge({
+    schemaVersion: 1,
+    tables: {
+      tasks: [updatedSnapshotTask],
+    },
+  });
+
+  const retrievedUpdated = await db.tasks.get('task-from-daily-snapshot');
+  if (retrievedUpdated?.title !== 'Updated Title Same Timestamp') {
+    throw new Error('Same timestamp update with differing content was not applied.');
+  }
+  console.log(`  ✓ Same timestamp differing content update applied: "${retrievedUpdated.title}".`);
 
   console.log('\n🎉 ALL TESTS PASSED! Dexie schema, migrations, exportAll, and LWW importAndMerge are verified!\n');
 }

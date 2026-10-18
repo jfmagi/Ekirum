@@ -22,6 +22,7 @@ import {
   sanitizeUserProfile,
   sanitizeLibraryItem,
 } from './schemaSanitizers';
+import { SEED_EPOCH_ISO } from './seedData';
 
 export interface MergeStats {
   inserted: number;
@@ -347,15 +348,29 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
         if (incoming.isDeleted && !existing.isDeleted) {
           toPut.push(incoming);
           updated++;
+        } else if (JSON.stringify(incoming) !== JSON.stringify(existing)) {
+          // If timestamps are identical but contents differ, incoming update applies
+          toPut.push(incoming);
+          updated++;
         } else {
           skipped++;
         }
       } else {
-        // Near-tie within 2000ms clock skew: if incoming is a deletion, allow delete to win
+        // Near-tie within 5000ms clock skew: allow deletions and task completions to win
         const timeDiff = existingTime - normalizedIncomingTime;
-        if (timeDiff <= 2000 && incoming.isDeleted && !existing.isDeleted) {
-          toPut.push(incoming);
-          updated++;
+        if (timeDiff <= 5000) {
+          if (incoming.isDeleted && !existing.isDeleted) {
+            toPut.push(incoming);
+            updated++;
+          } else if ((incoming as any).completed && !(existing as any).completed) {
+            toPut.push(incoming);
+            updated++;
+          } else if (existing.updatedAt === SEED_EPOCH_ISO && JSON.stringify(incoming) !== JSON.stringify(existing)) {
+            toPut.push(incoming);
+            updated++;
+          } else {
+            skipped++;
+          }
         } else {
           skipped++;
         }

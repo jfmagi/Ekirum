@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   Clock,
 } from 'lucide-react';
+import { APP_VERSION, APP_CACHE_NAME, APP_BUILD_DATE } from '../../version';
 
 import { useShallow } from 'zustand/react/shallow';
 
@@ -245,12 +246,37 @@ export const BackupModal: React.FC = () => {
     }
   };
 
+  const [updateChecking, setUpdateChecking] = useState(false);
+
+  const handleCheckForUpdates = async () => {
+    setUpdateChecking(true);
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          await reg.update();
+        }
+      } catch (e) {
+        console.warn('Update check failed:', e);
+      }
+    }
+    setTimeout(() => {
+      window.location.reload();
+    }, 350);
+  };
+
   // 8. Manual Sync Trigger
   const handleSyncNow = async () => {
-    const ok = await triggerBackupAndSync(true);
-    if (ok) {
-      setActionMessage('Backup created and synced with other device files.');
-      setTimeout(() => setActionMessage(null), 3000);
+    const res = await triggerBackupAndSync(true, true);
+    if (res.success) {
+      if (res.filesProcessed > 0) {
+        setActionMessage(
+          `Synced with ${res.filesProcessed} device file${res.filesProcessed === 1 ? '' : 's'} (${res.totalChanges} changes applied).`
+        );
+      } else {
+        setActionMessage('Backup saved locally. (0 other device files found in folder)');
+      }
+      setTimeout(() => setActionMessage(null), 3500);
     } else {
       setActionMessage('Sync incomplete. Verify folder permissions.');
       setTimeout(() => setActionMessage(null), 3500);
@@ -388,10 +414,17 @@ export const BackupModal: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] text-stone-500 font-mono flex items-center gap-2">
+                    <div className="text-[11px] text-stone-500 font-mono flex flex-wrap items-center gap-x-2 gap-y-0.5">
                       <span>Last backup: {formatTime(backupStatus?.lastBackupAt)}</span>
                       {backupStatus?.lastSyncAt && (
                         <span>• Synced: {formatTime(backupStatus?.lastSyncAt)}</span>
+                      )}
+                      {permission === 'granted' && backupStatus?.foreignDeviceCount !== undefined && (
+                        <span>
+                          • {backupStatus.foreignDeviceCount > 0
+                            ? `${backupStatus.foreignDeviceCount} other device file${backupStatus.foreignDeviceCount === 1 ? '' : 's'}`
+                            : '0 other device files in folder'}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -615,10 +648,24 @@ export const BackupModal: React.FC = () => {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3.5 bg-stone-50/80 border-t border-stone-200 flex justify-end">
+        <div className="px-5 sm:px-6 py-3.5 bg-stone-50/80 border-t border-stone-200 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[11px] text-stone-500 font-mono">
+            <span title={`Build date: ${APP_BUILD_DATE}`}>v{APP_VERSION} ({APP_CACHE_NAME})</span>
+            <span className="text-stone-300">•</span>
+            <button
+              type="button"
+              onClick={handleCheckForUpdates}
+              disabled={updateChecking}
+              className="text-[11px] text-stone-600 hover:text-stone-900 underline font-sans cursor-pointer flex items-center gap-1"
+              title="Check for application updates and reload"
+            >
+              <RefreshCw size={10} className={updateChecking ? 'animate-spin text-crimson' : ''} />
+              <span>{updateChecking ? 'Updating app...' : 'Check for app updates'}</span>
+            </button>
+          </div>
           <button
             onClick={close}
-            className="px-4 py-1.5 text-xs font-medium text-white bg-charcoal hover:bg-stone-800 rounded-mac shadow-xs transition-colors"
+            className="w-full sm:w-auto px-4 py-1.5 text-xs font-medium text-white bg-charcoal hover:bg-stone-800 rounded-mac shadow-xs transition-colors cursor-pointer text-center"
           >
             Done
           </button>

@@ -14,6 +14,7 @@ export interface BackupStatus {
   permission: BackupFolderPermission;
   isOverdue: boolean;
   deviceId: string;
+  foreignDeviceCount?: number;
 }
 
 /**
@@ -116,6 +117,23 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     lastBackupAt && (Date.now() - new Date(lastBackupAt).getTime()) > 48 * 3600 * 1000
   );
 
+  let foreignDeviceCount = 0;
+  if (permission === 'granted') {
+    try {
+      const entries = await getDirectoryEntries(handle);
+      for (const entry of entries) {
+        if (entry.kind === 'file') {
+          const c = classifySyncEntry(entry.name, deviceId);
+          if (c.shouldProcess) {
+            foreignDeviceCount++;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   return {
     hasFileSystemSupport: true,
     folderName: handle.name || folderName,
@@ -124,6 +142,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     permission,
     isOverdue,
     deviceId,
+    foreignDeviceCount,
   };
 }
 
@@ -181,7 +200,7 @@ export async function reconnectBackupDirectory(): Promise<boolean> {
     await db.settings.delete('deviceSyncMtimes');
     await db.settings.delete('lastSyncAt');
     // Perform catch-up sync and backup
-    await syncDeviceFiles(handle, true);
+    await syncDeviceFiles(handle, true, true);
     await writeDeviceFile(handle);
     await performDailyBackup(handle, false);
     return true;
@@ -292,15 +311,65 @@ export async function performBackup(
 }
 
 /**
+ * Safely enumerate directory entries across desktop and mobile browsers,
+ * with fallbacks for handle.values(), handle[Symbol.asyncIterator], and handle.entries().
+ */
+async function getDirectoryEntries(handle: FileSystemDirectoryHandle): Promise<FileSystemHandle[]> {
+  const entries: FileSystemHandle[] = [];
+
+  // Try standard handle.values()
+  if (typeof (handle as any).values === 'function') {
+    try {
+      for await (const entry of (handle as any).values()) {
+        if (entry) entries.push(entry);
+      }
+      return entries;
+    } catch (err) {
+      console.warn('handle.values() failed, falling back to async iterator:', err);
+    }
+  }
+
+  // Try handle[Symbol.asyncIterator]()
+  if (typeof (handle as any)[Symbol.asyncIterator] === 'function') {
+    try {
+      for await (const item of (handle as any)) {
+        if (Array.isArray(item) && item[1]) {
+          entries.push(item[1]);
+        } else if (item && typeof item === 'object') {
+          entries.push(item);
+        }
+      }
+      return entries;
+    } catch (err) {
+      console.warn('handle[Symbol.asyncIterator] failed, falling back to entries():', err);
+    }
+  }
+
+  // Try handle.entries()
+  if (typeof (handle as any).entries === 'function') {
+    try {
+      for await (const [_, entry] of (handle as any).entries()) {
+        if (entry) entries.push(entry);
+      }
+      return entries;
+    } catch (err) {
+      console.warn('handle.entries() failed:', err);
+    }
+  }
+
+  return entries;
+}
+
+/**
  * Keep the last 14 backup-YYYY-MM-DD.json files, deleting older ones.
  */
 export async function pruneOldBackups(handle: FileSystemDirectoryHandle): Promise<number> {
   try {
     const backupFiles: string[] = [];
+    const entries = await getDirectoryEntries(handle);
 
-    // Iterate directory entries
-    for await (const entry of (handle as any).values()) {
-      if (entry.kind === 'file' && entry.name.startsWith('backup-') && entry.name.endsWith('.json')) {
+    for (const entry of entries) {
+      if (entry.kind === 'file' && entry.name.toLowerCase().startsWith('backup-') && entry.name.toLowerCase().endsWith('.json')) {
         backupFiles.push(entry.name);
       }
     }
@@ -340,45 +409,60 @@ export interface BackupAndSyncResult {
   filesProcessed: number;
 }
 
+export interface SyncClassification {
+  shouldProcess: boolean;
+  isArtifactToClean: boolean;
+  kind: 'device' | 'snapshot' | 'none';
+}
+
 /**
  * Determine if a directory file entry is a candidate sync file or a recoverable SAF/conflict artifact.
  */
 function classifySyncEntry(
   name: string,
   localDeviceId: string
-): { shouldProcess: boolean; isArtifactToClean: boolean } {
+): SyncClassification {
   if (!name || name.startsWith('.')) {
-    return { shouldProcess: false, isArtifactToClean: false };
+    return { shouldProcess: false, isArtifactToClean: false, kind: 'none' };
   }
 
-  const ownCanonicalName = `device-${localDeviceId}.json`;
-  if (name === ownCanonicalName) {
-    return { shouldProcess: false, isArtifactToClean: false };
+  const lower = name.toLowerCase();
+  const ownCanonicalName = `device-${localDeviceId}.json`.toLowerCase();
+
+  // Skip own primary device file
+  if (lower === ownCanonicalName) {
+    return { shouldProcess: false, isArtifactToClean: false, kind: 'none' };
   }
 
   // Canonical foreign device-<id>.json file
-  if (name.startsWith('device-') && name.endsWith('.json') && !name.includes('.tmp')) {
-    const isConflictCopy = /\(\d+\)\.json$/.test(name);
-    return { shouldProcess: true, isArtifactToClean: isConflictCopy };
+  if (lower.startsWith('device-') && lower.endsWith('.json') && !lower.includes('.tmp')) {
+    const isConflictCopy = /\(\d+\)\.json$/.test(lower);
+    return { shouldProcess: true, isArtifactToClean: isConflictCopy, kind: 'device' };
   }
 
   // Recoverable Android SAF rename / .tmp artifact (e.g. "device-xyz.json (1)" or "device-xyz.json.tmp")
   if (
-    name.startsWith('device-') &&
-    (name.endsWith('.tmp') || /\.json\s*\(\d+\)$/.test(name) || /\.tmp\s*\(\d+\)$/.test(name))
+    lower.startsWith('device-') &&
+    (lower.endsWith('.tmp') || /\.json\s*\(\d+\)$/.test(lower) || /\.tmp\s*\(\d+\)$/.test(lower))
   ) {
-    return { shouldProcess: true, isArtifactToClean: true };
+    return { shouldProcess: true, isArtifactToClean: true, kind: 'device' };
   }
 
-  return { shouldProcess: false, isArtifactToClean: false };
+  // Daily backup snapshots or exported backups (e.g. backup-YYYY-MM-DD.json or ekirum-backup-*.json)
+  if ((lower.startsWith('backup-') || lower.startsWith('ekirum-backup-')) && lower.endsWith('.json')) {
+    return { shouldProcess: true, isArtifactToClean: false, kind: 'snapshot' };
+  }
+
+  return { shouldProcess: false, isArtifactToClean: false, kind: 'none' };
 }
 
 /**
- * Scan the shared backup folder for other device-<id>.json files and merge them in.
+ * Scan the shared backup folder for other device-<id>.json files (or fallback snapshot) and merge them in.
  */
 export async function syncDeviceFiles(
   handle: FileSystemDirectoryHandle,
-  force = false
+  force = false,
+  forceFullResync = false
 ): Promise<{ filesProcessed: number; mergeResult?: MergeResult }> {
   try {
     const now = Date.now();
@@ -413,13 +497,42 @@ export async function syncDeviceFiles(
 
     const MAX_DEVICE_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 
-    for await (const entry of (handle as any).values()) {
-      if (entry.kind !== 'file') continue;
-      const { shouldProcess, isArtifactToClean } = classifySyncEntry(entry.name, localDeviceId);
-      if (!shouldProcess) continue;
+    const entries = await getDirectoryEntries(handle);
 
+    // Group foreign device files and foreign snapshot files
+    const deviceCandidates: FileSystemHandle[] = [];
+    const snapshotCandidates: FileSystemHandle[] = [];
+
+    for (const entry of entries) {
+      if (entry.kind !== 'file') continue;
+      const classification = classifySyncEntry(entry.name, localDeviceId);
+      if (!classification.shouldProcess) continue;
+      if (classification.kind === 'device') {
+        deviceCandidates.push(entry);
+      } else if (classification.kind === 'snapshot') {
+        snapshotCandidates.push(entry);
+      }
+    }
+
+    // Process all foreign device files first.
+    // If no foreign device files are present in the folder, process the newest snapshot backup.
+    const candidatesToProcess: { entry: FileSystemHandle; isArtifactToClean: boolean; isSnapshot: boolean }[] = [];
+
+    for (const entry of deviceCandidates) {
+      const { isArtifactToClean } = classifySyncEntry(entry.name, localDeviceId);
+      candidatesToProcess.push({ entry, isArtifactToClean, isSnapshot: false });
+    }
+
+    if (deviceCandidates.length === 0 && snapshotCandidates.length > 0) {
+      // Sort snapshots descending so the newest snapshot is evaluated
+      snapshotCandidates.sort((a, b) => b.name.localeCompare(a.name));
+      const newestSnapshot = snapshotCandidates[0];
+      candidatesToProcess.push({ entry: newestSnapshot, isArtifactToClean: false, isSnapshot: true });
+    }
+
+    for (const { entry, isArtifactToClean, isSnapshot } of candidatesToProcess) {
       try {
-        const file = await entry.getFile();
+        const file = await (entry as any).getFile();
 
         // Reject files exceeding max safe payload size
         if (typeof file.size === 'number' && file.size > MAX_DEVICE_FILE_SIZE) {
@@ -436,6 +549,12 @@ export async function syncDeviceFiles(
         }
 
         const data = JSON.parse(text);
+
+        // If snapshot originated from the local device itself, skip it
+        if (isSnapshot && data?.deviceId === localDeviceId) {
+          continue;
+        }
+
         const currentMtime = typeof file.lastModified === 'number' ? file.lastModified : 0;
         const currentSize = typeof file.size === 'number' && file.size > 0 ? file.size : text.length;
         const currentExportedAt = typeof data?.exportedAt === 'string' ? data.exportedAt : '';
@@ -447,6 +566,7 @@ export async function syncDeviceFiles(
           typeof prevMeta === 'object' && prevMeta !== null ? (prevMeta?.exportedAt ?? '') : '';
 
         const isUnchanged =
+          !forceFullResync &&
           !isArtifactToClean &&
           prevMeta !== undefined &&
           currentMtime === prevMtime &&
@@ -490,7 +610,10 @@ export async function syncDeviceFiles(
     }
 
     const nowIso = new Date(now).toISOString();
-    await db.settings.put({ key: 'lastSyncAt', value: nowIso });
+    if (filesProcessed > 0) {
+      await db.settings.put({ key: 'lastSyncAt', value: nowIso });
+    }
+    await db.settings.put({ key: 'lastSyncCheckAt', value: nowIso });
 
     return {
       filesProcessed,
@@ -502,11 +625,19 @@ export async function syncDeviceFiles(
     };
   } catch (err) {
     console.warn('syncDeviceFiles error:', err);
-    return { filesProcessed: 0 };
+    return {
+      filesProcessed: 0,
+      mergeResult: {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        stats: {},
+        totalChanges: 0,
+      },
+    };
   }
 }
 
-async function executeBackupAndSyncPass(force: boolean): Promise<BackupAndSyncResult> {
+async function executeBackupAndSyncPass(force: boolean, forceFullResync = false): Promise<BackupAndSyncResult> {
   try {
     if (!isFileSystemAccessSupported()) return { success: false, totalChanges: 0, filesProcessed: 0 };
 
@@ -519,7 +650,7 @@ async function executeBackupAndSyncPass(force: boolean): Promise<BackupAndSyncRe
     }
 
     // 1. Sync other devices' files from the shared folder into local Dexie
-    const syncRes = await syncDeviceFiles(handle, force);
+    const syncRes = await syncDeviceFiles(handle, force, forceFullResync);
     const totalChanges = syncRes.mergeResult?.totalChanges || 0;
     const filesProcessed = syncRes.filesProcessed || 0;
 
@@ -529,7 +660,7 @@ async function executeBackupAndSyncPass(force: boolean): Promise<BackupAndSyncRe
     // 3. Daily backup snapshot (if >=24h or forced)
     await performDailyBackup(handle, force);
 
-    const isSuccess = (syncRes.mergeResult ? syncRes.mergeResult.success : true) && deviceWriteOk;
+    const isSuccess = Boolean(syncRes.mergeResult && syncRes.mergeResult.success) && deviceWriteOk;
     return { success: isSuccess, totalChanges, filesProcessed };
   } catch (err) {
     console.warn('maybeBackupAndSync error:', err);
@@ -537,14 +668,17 @@ async function executeBackupAndSyncPass(force: boolean): Promise<BackupAndSyncRe
   }
 }
 
+let pendingSyncFullResync: boolean | null = null;
+
 /**
  * Automated lifecycle check: called on app mount, visibilitychange, and periodic checks.
  * Queues concurrent requests instead of dropping them so manual "Sync Now" or rapid
  * local mutations during an in-flight sync never fail or get lost.
  */
-export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncResult> {
+export async function maybeBackupAndSync(force = false, forceFullResync = false): Promise<BackupAndSyncResult> {
   if (activeSyncPromise) {
     pendingSyncForce = Boolean(pendingSyncForce || force);
+    pendingSyncFullResync = Boolean(pendingSyncFullResync || forceFullResync);
     const firstRes = await activeSyncPromise;
     if (activeSyncPromise) {
       return await activeSyncPromise;
@@ -557,17 +691,20 @@ export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncRe
     let aggregatedChanges = 0;
     let aggregatedFiles = 0;
     let currentForce = force;
+    let currentFullResync = forceFullResync;
 
     try {
       while (true) {
         pendingSyncForce = null;
-        const res = await executeBackupAndSyncPass(currentForce);
+        pendingSyncFullResync = null;
+        const res = await executeBackupAndSyncPass(currentForce, currentFullResync);
         aggregatedSuccess = res.success;
         aggregatedChanges += res.totalChanges;
         aggregatedFiles += res.filesProcessed;
 
-        if (pendingSyncForce !== null) {
-          currentForce = pendingSyncForce;
+        if (pendingSyncForce !== null || pendingSyncFullResync !== null) {
+          currentForce = Boolean(pendingSyncForce);
+          currentFullResync = Boolean(pendingSyncFullResync);
           continue;
         }
         break;
@@ -580,6 +717,7 @@ export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncRe
     } finally {
       activeSyncPromise = null;
       pendingSyncForce = null;
+      pendingSyncFullResync = null;
     }
   })();
 

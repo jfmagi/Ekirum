@@ -90,6 +90,11 @@ export const App: React.FC = () => {
     const handleSync = () => {
       triggerBackupAndSync(false);
       refreshBackupStatus();
+      if ('serviceWorker' in navigator && (document.visibilityState === 'visible' || !document.hidden)) {
+        navigator.serviceWorker.getRegistration().then((reg) => {
+          reg?.update().catch(() => {});
+        }).catch(() => {});
+      }
     };
 
     document.addEventListener('visibilitychange', handleSync);

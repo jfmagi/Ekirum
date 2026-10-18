@@ -39,6 +39,7 @@ import {
   maybeBackupAndSync,
   isFileSystemAccessSupported,
   BackupStatus,
+  BackupAndSyncResult,
 } from '../lib/backupService';
 import { MAX_LENGTHS, clampString } from '../lib/validation';
 
@@ -313,7 +314,7 @@ export interface EkirumStore {
   refreshBackupStatus: () => Promise<void>;
   selectBackupFolder: () => Promise<{ success: boolean; name?: string; error?: string }>;
   reconnectBackupFolder: () => Promise<boolean>;
-  triggerBackupAndSync: (force?: boolean) => Promise<boolean>;
+  triggerBackupAndSync: (force?: boolean, forceFullResync?: boolean) => Promise<BackupAndSyncResult>;
 
   // Actions - Manual Export & Merge
   exportBackupJson: () => Promise<string>;
@@ -717,19 +718,19 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         return ok;
       },
 
-      triggerBackupAndSync: async (force = true) => {
-        if (get().isSyncing && !force) return false;
+      triggerBackupAndSync: async (force = true, forceFullResync = false) => {
+        if (get().isSyncing && !force) return { success: false, totalChanges: 0, filesProcessed: 0 };
         set({ isSyncing: true });
         try {
-          const res = await maybeBackupAndSync(force);
+          const res = await maybeBackupAndSync(force, forceFullResync);
           if (force || res.totalChanges > 0 || res.filesProcessed > 0) {
             await get().syncWithDatabase();
           }
           await get().refreshBackupStatus();
-          return res.success;
+          return res;
         } catch (err) {
           console.warn('triggerBackupAndSync error:', err);
-          return false;
+          return { success: false, totalChanges: 0, filesProcessed: 0 };
         } finally {
           set({ isSyncing: false });
         }
