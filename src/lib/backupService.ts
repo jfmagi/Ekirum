@@ -48,6 +48,8 @@ export async function saveDirectoryHandle(handle: FileSystemDirectoryHandle): Pr
       updatedAt: new Date().toISOString(),
     },
   });
+  await db.settings.delete('deviceSyncMtimes');
+  await db.settings.delete('lastSyncAt');
 }
 
 /**
@@ -176,6 +178,8 @@ export async function reconnectBackupDirectory(): Promise<boolean> {
 
   const perm = await verifyHandlePermission(handle, true);
   if (perm === 'granted') {
+    await db.settings.delete('deviceSyncMtimes');
+    await db.settings.delete('lastSyncAt');
     // Perform catch-up sync and backup
     await syncDeviceFiles(handle, true);
     await writeDeviceFile(handle);
@@ -186,8 +190,11 @@ export async function reconnectBackupDirectory(): Promise<boolean> {
 }
 
 /**
- * Write a file atomically by writing to *.tmp first and renaming via .move().
- * Falls back safely to direct write if temp handle or move() is unavailable.
+ * Write a file using FileSystemFileHandle.createWritable().
+ * Note: Chromium's createWritable() natively streams to an internal swap file and
+ * commits atomically on close(). Writing directly to the target handle avoids
+ * Android SAF renameDocument (.move) creating " (1)" duplicate files and avoids
+ * cloud sync provider lock conflicts on .tmp files.
  */
 export async function atomicWriteFile(
   handle: FileSystemDirectoryHandle,
@@ -196,29 +203,14 @@ export async function atomicWriteFile(
 ): Promise<void> {
   if (!handle || typeof (handle as any).getFileHandle !== 'function') return;
 
-  const tmpName = `${fileName}.tmp`;
-  try {
-    const tmpHandle = await handle.getFileHandle(tmpName, { create: true });
-    const writable = await (tmpHandle as any).createWritable();
-    await writable.write(content);
-    await writable.close();
+  const fileHandle = await handle.getFileHandle(fileName, { create: true });
+  const writable = await (fileHandle as any).createWritable();
+  await writable.write(content);
+  await writable.close();
 
-    if (typeof (tmpHandle as any).move === 'function') {
-      await (tmpHandle as any).move(fileName);
-    } else {
-      const targetHandle = await handle.getFileHandle(fileName, { create: true });
-      const targetWritable = await (targetHandle as any).createWritable();
-      await targetWritable.write(content);
-      await targetWritable.close();
-      await handle.removeEntry(tmpName).catch(() => {});
-    }
-  } catch {
-    await handle.removeEntry(tmpName).catch(() => {});
-    // Direct write fallback
-    const fileHandle = await handle.getFileHandle(fileName, { create: true });
-    const writable = await (fileHandle as any).createWritable();
-    await writable.write(content);
-    await writable.close();
+  // Clean up any legacy .tmp file left by older versions
+  if (typeof (handle as any).removeEntry === 'function') {
+    await handle.removeEntry(`${fileName}.tmp`).catch(() => {});
   }
 }
 
@@ -338,13 +330,47 @@ export async function pruneOldBackups(handle: FileSystemDirectoryHandle): Promis
   }
 }
 
-export const SYNC_THROTTLE_MS = 10 * 1000;
-let isBackupSyncRunning = false;
+export const SYNC_THROTTLE_MS = 3 * 1000;
+let activeSyncPromise: Promise<BackupAndSyncResult> | null = null;
+let pendingSyncForce: boolean | null = null;
 
 export interface BackupAndSyncResult {
   success: boolean;
   totalChanges: number;
   filesProcessed: number;
+}
+
+/**
+ * Determine if a directory file entry is a candidate sync file or a recoverable SAF/conflict artifact.
+ */
+function classifySyncEntry(
+  name: string,
+  localDeviceId: string
+): { shouldProcess: boolean; isArtifactToClean: boolean } {
+  if (!name || name.startsWith('.')) {
+    return { shouldProcess: false, isArtifactToClean: false };
+  }
+
+  const ownCanonicalName = `device-${localDeviceId}.json`;
+  if (name === ownCanonicalName) {
+    return { shouldProcess: false, isArtifactToClean: false };
+  }
+
+  // Canonical foreign device-<id>.json file
+  if (name.startsWith('device-') && name.endsWith('.json') && !name.includes('.tmp')) {
+    const isConflictCopy = /\(\d+\)\.json$/.test(name);
+    return { shouldProcess: true, isArtifactToClean: isConflictCopy };
+  }
+
+  // Recoverable Android SAF rename / .tmp artifact (e.g. "device-xyz.json (1)" or "device-xyz.json.tmp")
+  if (
+    name.startsWith('device-') &&
+    (name.endsWith('.tmp') || /\.json\s*\(\d+\)$/.test(name) || /\.tmp\s*\(\d+\)$/.test(name))
+  ) {
+    return { shouldProcess: true, isArtifactToClean: true };
+  }
+
+  return { shouldProcess: false, isArtifactToClean: false };
 }
 
 /**
@@ -388,54 +414,74 @@ export async function syncDeviceFiles(
     const MAX_DEVICE_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 
     for await (const entry of (handle as any).values()) {
-      if (
-        entry.kind === 'file' &&
-        entry.name.startsWith('device-') &&
-        entry.name.endsWith('.json') &&
-        entry.name !== `device-${localDeviceId}.json` &&
-        !entry.name.startsWith('.') &&
-        !entry.name.includes('.tmp')
-      ) {
-        try {
-          const file = await entry.getFile();
-          const prevMeta = syncMtimes[entry.name];
-          const prevMtime = typeof prevMeta === 'number' ? prevMeta : (prevMeta?.mtime || 0);
-          const prevSize = typeof prevMeta === 'object' && prevMeta !== null ? (prevMeta?.size || 0) : 0;
-          const currentSize = typeof file.size === 'number' ? file.size : 0;
+      if (entry.kind !== 'file') continue;
+      const { shouldProcess, isArtifactToClean } = classifySyncEntry(entry.name, localDeviceId);
+      if (!shouldProcess) continue;
 
-          // Reject files exceeding max safe payload size
-          if (file.size > MAX_DEVICE_FILE_SIZE) {
-            console.warn(`Device file ${entry.name} exceeds 25 MB limit (${file.size} bytes). Skipping.`);
-            filesFailed++;
-            continue;
-          }
+      try {
+        const file = await entry.getFile();
 
-          const hasSize = typeof file.size === 'number' && file.size > 0;
-          const sizeChanged = hasSize && prevSize > 0 && file.size !== prevSize;
-          const mtimeChanged = file.lastModified > prevMtime;
-
-          // If neither mtime nor size changed, skip reading and parsing
-          if (!mtimeChanged && !sizeChanged) {
-            continue;
-          }
-
-          const text = await file.text();
-          const data = JSON.parse(text);
-
-          const mergeRes = await importAndMerge(data);
-          if (mergeRes.success) {
-            filesProcessed++;
-            totalMergedChanges += mergeRes.totalChanges;
-            syncMtimes[entry.name] = { mtime: file.lastModified, size: currentSize };
-            mtimesChanged = true;
-          } else {
-            filesFailed++;
-            console.warn(`Error merging device sync file ${entry.name}:`, mergeRes.error);
-          }
-        } catch (e) {
+        // Reject files exceeding max safe payload size
+        if (typeof file.size === 'number' && file.size > MAX_DEVICE_FILE_SIZE) {
+          console.warn(`Device file ${entry.name} exceeds 25 MB limit (${file.size} bytes). Skipping.`);
           filesFailed++;
-          console.warn(`Error reading device sync file ${entry.name}:`, e);
+          continue;
         }
+
+        const text = await file.text();
+        if (text.length > MAX_DEVICE_FILE_SIZE) {
+          console.warn(`Device file ${entry.name} content exceeds 25 MB limit. Skipping.`);
+          filesFailed++;
+          continue;
+        }
+
+        const data = JSON.parse(text);
+        const currentMtime = typeof file.lastModified === 'number' ? file.lastModified : 0;
+        const currentSize = typeof file.size === 'number' && file.size > 0 ? file.size : text.length;
+        const currentExportedAt = typeof data?.exportedAt === 'string' ? data.exportedAt : '';
+
+        const prevMeta = syncMtimes[entry.name];
+        const prevMtime = typeof prevMeta === 'number' ? prevMeta : (prevMeta?.mtime ?? -1);
+        const prevSize = typeof prevMeta === 'object' && prevMeta !== null ? (prevMeta?.size ?? -1) : -1;
+        const prevExportedAt =
+          typeof prevMeta === 'object' && prevMeta !== null ? (prevMeta?.exportedAt ?? '') : '';
+
+        const isUnchanged =
+          !isArtifactToClean &&
+          prevMeta !== undefined &&
+          currentMtime === prevMtime &&
+          currentSize === prevSize &&
+          currentExportedAt === prevExportedAt;
+
+        if (isUnchanged) {
+          continue;
+        }
+
+        const mergeRes = await importAndMerge(data);
+        if (mergeRes.success) {
+          filesProcessed++;
+          totalMergedChanges += mergeRes.totalChanges;
+          if (isArtifactToClean && typeof (handle as any).removeEntry === 'function') {
+            await handle.removeEntry(entry.name).catch(() => {});
+            delete syncMtimes[entry.name];
+          } else {
+            syncMtimes[entry.name] = {
+              mtime: currentMtime,
+              size: currentSize,
+              exportedAt: currentExportedAt,
+            };
+          }
+          mtimesChanged = true;
+        } else {
+          filesFailed++;
+          console.warn(`Error merging device sync file ${entry.name}:`, mergeRes.error);
+        }
+      } catch (e) {
+        filesFailed++;
+        if (isArtifactToClean && typeof (handle as any).removeEntry === 'function') {
+          await handle.removeEntry(entry.name).catch(() => {});
+        }
+        console.warn(`Error reading device sync file ${entry.name}:`, e);
       }
     }
 
@@ -460,15 +506,7 @@ export async function syncDeviceFiles(
   }
 }
 
-/**
- * Automated lifecycle check: called on app mount, visibilitychange, and periodic checks.
- */
-export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncResult> {
-  if (isBackupSyncRunning) {
-    return { success: false, totalChanges: 0, filesProcessed: 0 };
-  }
-
-  isBackupSyncRunning = true;
+async function executeBackupAndSyncPass(force: boolean): Promise<BackupAndSyncResult> {
   try {
     if (!isFileSystemAccessSupported()) return { success: false, totalChanges: 0, filesProcessed: 0 };
 
@@ -496,7 +534,54 @@ export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncRe
   } catch (err) {
     console.warn('maybeBackupAndSync error:', err);
     return { success: false, totalChanges: 0, filesProcessed: 0 };
-  } finally {
-    isBackupSyncRunning = false;
   }
+}
+
+/**
+ * Automated lifecycle check: called on app mount, visibilitychange, and periodic checks.
+ * Queues concurrent requests instead of dropping them so manual "Sync Now" or rapid
+ * local mutations during an in-flight sync never fail or get lost.
+ */
+export async function maybeBackupAndSync(force = false): Promise<BackupAndSyncResult> {
+  if (activeSyncPromise) {
+    pendingSyncForce = Boolean(pendingSyncForce || force);
+    const firstRes = await activeSyncPromise;
+    if (activeSyncPromise) {
+      return await activeSyncPromise;
+    }
+    return firstRes;
+  }
+
+  activeSyncPromise = (async () => {
+    let aggregatedSuccess = false;
+    let aggregatedChanges = 0;
+    let aggregatedFiles = 0;
+    let currentForce = force;
+
+    try {
+      while (true) {
+        pendingSyncForce = null;
+        const res = await executeBackupAndSyncPass(currentForce);
+        aggregatedSuccess = res.success;
+        aggregatedChanges += res.totalChanges;
+        aggregatedFiles += res.filesProcessed;
+
+        if (pendingSyncForce !== null) {
+          currentForce = pendingSyncForce;
+          continue;
+        }
+        break;
+      }
+      return {
+        success: aggregatedSuccess,
+        totalChanges: aggregatedChanges,
+        filesProcessed: aggregatedFiles,
+      };
+    } finally {
+      activeSyncPromise = null;
+      pendingSyncForce = null;
+    }
+  })();
+
+  return activeSyncPromise;
 }

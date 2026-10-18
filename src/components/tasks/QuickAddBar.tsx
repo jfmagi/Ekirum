@@ -221,31 +221,59 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
   const durationEndDate = durationEnd.date;
   const durationEndTime = durationEnd.time;
 
-  const handleDurationStartChange = (newDate: string, newTime: string) => {
-    setExplicitDueDate(newDate);
-    setExplicitDueTime(newTime);
-    if (!effectiveDuration) {
+  const handleOpenDurationPicker = () => {
+    const nextOpen = !durationPickerOpen;
+    setDurationPickerOpen(nextOpen);
+    if (nextOpen && !effectiveDuration) {
       setExplicitDuration(60);
-    }
-  };
-
-  const handleDurationEndChange = (newEndDate: string, newEndTime: string) => {
-    let diff = diffInMinutesDateTime(durationStartDate, durationStartTime, newEndDate, newEndTime);
-    if (diff <= 0 && newEndDate === durationStartDate) {
-      const nextDay = addMinutesToDateTime(durationStartDate, '00:00', 1440).date;
-      diff = diffInMinutesDateTime(durationStartDate, durationStartTime, nextDay, newEndTime);
-    }
-    if (diff > 0) {
-      setExplicitDuration(Math.min(1440, diff));
       if (!effectiveDueDate) setExplicitDueDate(durationStartDate);
       if (!effectiveDueTime) setExplicitDueTime(durationStartTime);
     }
   };
 
+  const handleDurationStartChange = (newDate: string, newTime: string) => {
+    setExplicitDueDate(newDate);
+    setExplicitDueTime(newTime);
+    const dur = effectiveDuration && effectiveDuration > 0 ? effectiveDuration : 60;
+    setExplicitDuration(dur);
+  };
+
+  const handleDurationEndChange = (newEndDate: string, newEndTime: string) => {
+    const currentStartD = explicitDueDate || effectiveDueDate || todayStr;
+    const currentStartT = explicitDueTime || effectiveDueTime || currentHourStr;
+    let diff = diffInMinutesDateTime(currentStartD, currentStartT, newEndDate, newEndTime);
+    if (diff <= 0 && newEndDate === currentStartD) {
+      const nextDay = addMinutesToDateTime(currentStartD, '00:00', 1440).date;
+      diff = diffInMinutesDateTime(currentStartD, currentStartT, nextDay, newEndTime);
+    }
+    if (diff > 0) {
+      setExplicitDuration(Math.min(1440, diff));
+      setExplicitDueDate(currentStartD);
+      setExplicitDueTime(currentStartT);
+    }
+  };
+
   const handleDurationPresetClick = (mins: number) => {
     setExplicitDuration(mins);
+    const currentStartD = explicitDueDate || effectiveDueDate || todayStr;
+    const currentStartT = explicitDueTime || effectiveDueTime || currentHourStr;
+    setExplicitDueDate(currentStartD);
+    setExplicitDueTime(currentStartT);
+  };
+
+  const handleClearDuration = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExplicitDuration(null);
+    setExplicitDueTime(null);
+    setDurationPickerOpen(false);
+  };
+
+  const handleDurationDone = () => {
+    const dur = effectiveDuration && effectiveDuration > 0 ? effectiveDuration : 60;
+    setExplicitDuration(dur);
     if (!effectiveDueDate) setExplicitDueDate(durationStartDate);
     if (!effectiveDueTime) setExplicitDueTime(durationStartTime);
+    setDurationPickerOpen(false);
   };
 
   // Match projectQuery if user typed `@ProjectName`
@@ -266,6 +294,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
     const count = effectiveBatchCount;
     const finalDueDate =
       effectiveDueDate ||
+      (effectiveDueTime ? todayStr : undefined) ||
       (effectiveRecurrence !== 'none' && explicitDueDate !== null ? todayStr : undefined);
 
     if (count > 1) {
@@ -717,7 +746,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
               <div className="relative inline-flex items-center" ref={durationPickerRef}>
                 <button
                   type="button"
-                  onClick={() => setDurationPickerOpen(!durationPickerOpen)}
+                  onClick={handleOpenDurationPicker}
                   className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-mac border transition-all cursor-pointer ${
                     effectiveDuration
                       ? 'bg-blue-500/10 text-blue-900 border-blue-300/80 font-medium shadow-2xs'
@@ -735,10 +764,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                 {effectiveDuration && (
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setExplicitDuration(null);
-                    }}
+                    onClick={handleClearDuration}
                     className="ml-1 p-0.5 text-stone-400 hover:text-stone-700 hover:bg-stone-200/50 rounded cursor-pointer transition-colors"
                     title="Remove duration"
                     aria-label="Remove task duration"
@@ -763,10 +789,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                       {effectiveDuration && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setExplicitDuration(null);
-                            setDurationPickerOpen(false);
-                          }}
+                          onClick={handleClearDuration}
                           className="text-[10px] text-stone-400 hover:text-stone-600 underline cursor-pointer"
                         >
                           Clear
@@ -869,8 +892,10 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                             const val = e.target.value ? parseInt(e.target.value, 10) : null;
                             if (val && !isNaN(val) && val > 0) {
                               setExplicitDuration(Math.min(val, 1440));
-                              if (!effectiveDueDate) setExplicitDueDate(durationStartDate);
-                              if (!effectiveDueTime) setExplicitDueTime(durationStartTime);
+                              const currentStartD = explicitDueDate || effectiveDueDate || todayStr;
+                              const currentStartT = explicitDueTime || effectiveDueTime || currentHourStr;
+                              setExplicitDueDate(currentStartD);
+                              setExplicitDueTime(currentStartT);
                             } else {
                               setExplicitDuration(null);
                             }
@@ -879,7 +904,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                         />
                         <button
                           type="button"
-                          onClick={() => setDurationPickerOpen(false)}
+                          onClick={handleDurationDone}
                           className="px-2.5 py-1 text-xs font-medium text-white bg-charcoal hover:bg-stone-800 rounded-mac transition-colors cursor-pointer"
                         >
                           Done

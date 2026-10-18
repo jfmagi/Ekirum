@@ -332,8 +332,12 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
 
       if (customMerger) {
         const merged = customMerger(existing, incoming, isIncomingNewer);
-        toPut.push(merged);
-        updated++;
+        if (JSON.stringify(merged) !== JSON.stringify(existing)) {
+          toPut.push(merged);
+          updated++;
+        } else {
+          skipped++;
+        }
       } else if (isIncomingNewer) {
         // Incoming is strictly newer: update
         toPut.push(incoming);

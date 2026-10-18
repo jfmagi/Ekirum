@@ -5,6 +5,7 @@ import { formatDueDateDisplay, formatLocalDate, formatDuration } from '../../lib
 import {
   Check,
   Calendar,
+  Clock,
   Timer,
   Tag,
   CheckSquare,
@@ -164,7 +165,11 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({ task, onOpenDetai
                     isOverdue ? 'text-crimson font-medium' : 'text-stone-500'
                   }`}
                 >
-                  <Calendar size={11} className={isOverdue ? 'text-crimson' : 'text-stone-400'} />
+                  {task.dueDate ? (
+                    <Calendar size={11} className={isOverdue ? 'text-crimson' : 'text-stone-400'} />
+                  ) : (
+                    <Clock size={11} className="text-stone-400" />
+                  )}
                   <span>{formatDueDateDisplay(task.dueDate, task.dueTime, task.duration)}</span>
                 </div>
               )}

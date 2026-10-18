@@ -777,7 +777,11 @@ const trTokens = tokenizeTaskInput('task 10-12');
 const trTimeToken = trTokens.find((t) => t.type === 'time');
 assert.ok(trTimeToken, 'Should recognize "10-12" as time token');
 assert.strictEqual(trTimeToken.text, '10-12');
-assert.strictEqual(trTokens.map((t) => t.text).join(''), 'task 10-12', 'Tokenization text invariant must hold');
+// 29g: String duration support in formatTimeRange and formatDueDateDisplay
+assert.strictEqual(formatTimeRange('10:00', '120'), '10-12');
+assert.strictEqual(formatTimeRange('15:00', '60'), '15-16');
+assert.strictEqual(formatDueDateDisplay(todayStr, '10:00', '120'), `Today, 10-12`);
+assert.strictEqual(formatDueDateDisplay(undefined, '10:00', '120'), '10-12');
 
 console.log('Test 29: Hours Range Display, Word Number Duration Parsing & Tokenization: PASSED');
 

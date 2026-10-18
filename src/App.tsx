@@ -39,6 +39,8 @@ export const App: React.FC = () => {
     initStorage,
     triggerBackupAndSync,
     refreshBackupStatus,
+    reconnectBackupFolder,
+    backupStatus,
     storageError,
     clearStorageError,
     taskDetailId,
@@ -65,6 +67,8 @@ export const App: React.FC = () => {
       initStorage: s.initStorage,
       triggerBackupAndSync: s.triggerBackupAndSync,
       refreshBackupStatus: s.refreshBackupStatus,
+      reconnectBackupFolder: s.reconnectBackupFolder,
+      backupStatus: s.backupStatus,
       storageError: s.storageError,
       clearStorageError: s.clearStorageError,
       taskDetailId: s.taskDetailId,
@@ -110,6 +114,26 @@ export const App: React.FC = () => {
       clearInterval(periodicInterval);
     };
   }, [initStorage, triggerBackupAndSync, refreshBackupStatus]);
+
+  // Automatically request directory handle permission on the user's first tap/key press
+  // when a sync folder is configured in IndexedDB but browser session permission is 'prompt'
+  useEffect(() => {
+    if (!backupStatus?.folderName || backupStatus.permission !== 'prompt') return;
+    let triggered = false;
+    const handleFirstGesture = () => {
+      if (triggered) return;
+      triggered = true;
+      window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('keydown', handleFirstGesture);
+      void reconnectBackupFolder();
+    };
+    window.addEventListener('pointerdown', handleFirstGesture, { once: true, passive: true });
+    window.addEventListener('keydown', handleFirstGesture, { once: true, passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('keydown', handleFirstGesture);
+    };
+  }, [backupStatus?.folderName, backupStatus?.permission, reconnectBackupFolder]);
 
   // Global Keyboard shortcuts with strict modifier protection
   useEffect(() => {

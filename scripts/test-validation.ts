@@ -650,9 +650,11 @@ assert.deepStrictEqual(restoredLibraryItem, fullLibraryItem, 'LibraryItem must s
 
 console.log('Test 16: Complete end-to-end round-trip fidelity across all 8 tables: PASSED');
 
-// Test 17: writeDeviceFile writes atomically and independently of 24h daily backup throttle
-const writtenFiles: Record<string, string> = {};
-let moveCalled = false;
+// Test 17: writeDeviceFile writes directly via createWritable (avoiding Android SAF .move() duplicate suffix bugs) and cleans up legacy .tmp files
+const writtenFiles: Record<string, string> = {
+  'device-legacy.json.tmp': 'stale-tmp',
+};
+const removedEntries: string[] = [];
 
 const mockAtomicDir = {
   kind: 'directory',
@@ -667,12 +669,11 @@ const mockAtomicDir = {
           close: async () => { writtenFiles[name] = buffer; },
         };
       },
-      move: async (targetName: string) => {
-        moveCalled = true;
-        writtenFiles[targetName] = writtenFiles[name];
-        delete writtenFiles[name];
-      },
     };
+  },
+  removeEntry: async (name: string) => {
+    removedEntries.push(name);
+    delete writtenFiles[name];
   },
 } as any;
 
@@ -686,15 +687,96 @@ assert.strictEqual(dailySkipped, false, 'Daily backup should skip when fresh (<2
 // writeDeviceFile MUST succeed even when daily backup is fresh (<24h)
 const deviceWriteOk = await writeDeviceFile(mockAtomicDir);
 assert.strictEqual(deviceWriteOk, true, 'writeDeviceFile must run unconditionally on sync');
-assert.strictEqual(moveCalled, true, 'Atomic write must utilize .move() rename');
 
 const writtenKeys = Object.keys(writtenFiles);
 const deviceFileKey = writtenKeys.find((k) => k.startsWith('device-') && k.endsWith('.json'));
-assert.ok(deviceFileKey, 'device-<id>.json must be written to folder');
+assert.ok(deviceFileKey, 'device-<id>.json must be written directly to folder');
+assert.ok(
+  removedEntries.includes(`${deviceFileKey}.tmp`),
+  'atomicWriteFile should attempt to remove any leftover .tmp file for the target'
+);
 const devicePayload = JSON.parse(writtenFiles[deviceFileKey]);
 assert.strictEqual(devicePayload.schemaVersion, 1);
 assert.ok(devicePayload.tables.tasks.length > 0);
-console.log('Test 17: writeDeviceFile atomic write and separation from 24h throttle: PASSED');
+
+// Test 17b: syncDeviceFiles recovers Android SAF conflict files (`device-xyz.json (1)`) and handles legacy numeric deviceSyncMtimes
+const safConflictPayload = JSON.stringify({
+  schemaVersion: 1,
+  exportedAt: '2026-10-18T16:00:00.000Z',
+  tables: {
+    tasks: [
+      {
+        id: 'task-from-android-saf',
+        projectId: 'inbox',
+        title: 'Synced from Android SAF',
+        notes: '',
+        recurrence: 'none',
+        priority: 'p2',
+        labels: [],
+        completed: false,
+        createdAt: '2026-10-18T15:59:00.000Z',
+        updatedAt: '2026-10-18T16:00:00.000Z',
+        isDeleted: false,
+        subtasks: [],
+      },
+    ],
+    projects: [],
+    skills: [],
+    habits: [],
+    habitEvents: [],
+    achievements: [],
+    userProfile: [],
+    libraryItems: [],
+  },
+});
+
+// Seed legacy numeric mtime that equals file.lastModified to prove legacy numeric entries no longer skip updated payloads
+await db.settings.put({
+  key: 'deviceSyncMtimes',
+  value: {
+    'device-remote-peer.json': 1700000000000,
+  },
+});
+
+const removedSafArtifacts: string[] = [];
+const mockSafSyncDir = {
+  kind: 'directory',
+  name: 'mock-saf-sync-dir',
+  async *values() {
+    yield {
+      kind: 'file',
+      name: 'device-remote-peer.json',
+      getFile: async () => ({
+        lastModified: 1700000000000, // Same mtime as legacy number in DB!
+        size: safConflictPayload.length,
+        text: async () => safConflictPayload,
+      }),
+    };
+    yield {
+      kind: 'file',
+      name: 'device-remote-peer.json (1)',
+      getFile: async () => ({
+        lastModified: 1700000001000,
+        size: safConflictPayload.length,
+        text: async () => safConflictPayload,
+      }),
+    };
+  },
+  removeEntry: async (name: string) => {
+    removedSafArtifacts.push(name);
+  },
+} as any;
+
+const safSyncRes = await syncDeviceFiles(mockSafSyncDir, true);
+assert.ok(safSyncRes.filesProcessed >= 1, 'syncDeviceFiles must process remote file despite legacy numeric mtime');
+const safSyncedTask = await db.tasks.get('task-from-android-saf');
+assert.ok(safSyncedTask, 'Task from remote peer must be merged into IndexedDB');
+assert.strictEqual(safSyncedTask.title, 'Synced from Android SAF');
+assert.ok(
+  removedSafArtifacts.includes('device-remote-peer.json (1)'),
+  'syncDeviceFiles must clean up Android SAF duplicate artifact files after merging'
+);
+console.log('Test 17: writeDeviceFile direct atomic write, SAF conflict recovery & legacy mtime migration: PASSED');
 
 // Test 18: importAndMerge preserves habit completedDates when tables.habitEvents is omitted
 const habitWithoutEventsId = 'habit-no-events-test';

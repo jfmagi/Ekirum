@@ -767,9 +767,10 @@ export function parseNaturalLanguageTask(input: string): ParsedTaskInput {
  * - dueTime "10:00", duration 90m      -> "10:00-11:30"
  * - dueTime "10:00", no duration       -> "10:00"
  */
-export function formatTimeRange(dueTime: string, duration?: number): string {
+export function formatTimeRange(dueTime: string, duration?: number | string): string {
   if (!dueTime) return '';
-  if (!duration || typeof duration !== 'number' || isNaN(duration) || duration <= 0) {
+  const numDuration = typeof duration === 'string' ? parseInt(duration, 10) : duration;
+  if (!numDuration || typeof numDuration !== 'number' || isNaN(numDuration) || numDuration <= 0) {
     return dueTime;
   }
 
@@ -779,7 +780,7 @@ export function formatTimeRange(dueTime: string, duration?: number): string {
   if (isNaN(startH)) return dueTime;
 
   const totalStartMinutes = startH * 60 + startM;
-  const totalEndMinutes = totalStartMinutes + Math.round(duration);
+  const totalEndMinutes = totalStartMinutes + Math.round(numDuration);
   const endH = Math.floor(totalEndMinutes / 60) % 24;
   const endM = totalEndMinutes % 60;
 
@@ -794,7 +795,7 @@ export function formatTimeRange(dueTime: string, duration?: number): string {
   return `${startFormatted}-${endFormatted}`;
 }
 
-export function formatDueDateDisplay(dateStr?: string, timeStr?: string, duration?: number): string {
+export function formatDueDateDisplay(dateStr?: string, timeStr?: string, duration?: number | string): string {
   if (!dateStr && !timeStr) return '';
 
   const formattedTime = timeStr ? formatTimeRange(timeStr, duration) : '';

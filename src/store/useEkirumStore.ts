@@ -386,15 +386,18 @@ export function advanceRecurringTask(
 }
 
 let backgroundSyncTimer: any = null;
-export function scheduleBackgroundSync(delayMs = 2500) {
+export function scheduleBackgroundSync(delayMs = 2000) {
   if (typeof window === 'undefined') return;
   if (!isFileSystemAccessSupported()) return;
   if (backgroundSyncTimer) clearTimeout(backgroundSyncTimer);
   backgroundSyncTimer = setTimeout(() => {
+    backgroundSyncTimer = null;
     const state = useEkirumStore.getState();
-    if (!state.isSyncing) {
-      state.triggerBackupAndSync(false).catch(() => {});
+    if (state.isSyncing) {
+      scheduleBackgroundSync(1500);
+      return;
     }
+    state.triggerBackupAndSync(false).catch(() => {});
   }, delayMs);
 }
 
@@ -715,7 +718,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       },
 
       triggerBackupAndSync: async (force = true) => {
-        if (get().isSyncing) return false;
+        if (get().isSyncing && !force) return false;
         set({ isSyncing: true });
         try {
           const res = await maybeBackupAndSync(force);
@@ -867,12 +870,13 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         }
 
         const updatedTask = { ...sanitizedUpdates, updatedAt: now };
+        const fullUpdatedTask: Task = { ...existing, ...updatedTask };
 
         set((state) => ({
-          tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updatedTask } : t)),
+          tasks: state.tasks.map((t) => (t.id === id ? fullUpdatedTask : t)),
         }));
 
-        db.tasks.update(id, updatedTask).catch(saveCatch('updating task'));
+        db.tasks.put(fullUpdatedTask).catch(saveCatch('updating task'));
       },
 
       deleteTask: (id) => {
@@ -2064,7 +2068,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         try {
           await db.transaction(
             'rw',
-            [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.achievements, db.userProfile, db.libraryItems],
+            [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.achievements, db.userProfile, db.libraryItems, db.settings],
             async () => {
               await db.tasks.clear();
               await db.projects.clear();
@@ -2074,6 +2078,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               await db.achievements.clear();
               await db.userProfile.clear();
               await db.libraryItems.clear();
+              await db.settings.delete('deviceSyncMtimes');
+              await db.settings.delete('lastSyncAt');
 
               await db.achievements.bulkPut(INITIAL_ACHIEVEMENTS);
               await db.userProfile.put(INITIAL_USER);
@@ -2125,7 +2131,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         const clonedUser = { ...INITIAL_USER, achievements: [...INITIAL_USER.achievements] };
         await db.transaction(
           'rw',
-          [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.achievements, db.userProfile, db.libraryItems],
+          [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.achievements, db.userProfile, db.libraryItems, db.settings],
           async () => {
             await db.tasks.clear();
             await db.projects.clear();
@@ -2135,6 +2141,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             await db.achievements.clear();
             await db.userProfile.clear();
             await db.libraryItems.clear();
+            await db.settings.delete('deviceSyncMtimes');
+            await db.settings.delete('lastSyncAt');
 
             if (INITIAL_PROJECTS.length > 0) await db.projects.bulkPut(INITIAL_PROJECTS);
             if (INITIAL_SKILLS.length > 0) await db.skills.bulkPut(INITIAL_SKILLS);
