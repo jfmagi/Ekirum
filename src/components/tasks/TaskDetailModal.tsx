@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { Task, Priority, Recurrence } from '../../types';
 import { MAX_LENGTHS } from '../../lib/validation';
-import { formatDuration, formatTimeRange, getCurrentHourTime, formatLocalDate } from '../../lib/dateParser';
+import { formatDuration, formatTimeRange } from '../../lib/dateParser';
 import {
   X,
   Calendar,
@@ -255,15 +255,9 @@ export const TaskDetailModal: React.FC = () => {
                   value={task.duration ?? ''}
                   onChange={(e) => {
                     const val = e.target.value ? parseInt(e.target.value, 10) : undefined;
-                    const durationVal = val && !isNaN(val) && val > 0 ? Math.min(val, 1440) : undefined;
-                    const updates: Partial<Task> = { duration: durationVal };
-                    if (durationVal && !task.dueTime) {
-                      updates.dueTime = getCurrentHourTime();
-                    }
-                    if (durationVal && !task.dueDate) {
-                      updates.dueDate = formatLocalDate();
-                    }
-                    updateTask(task.id, updates);
+                    updateTask(task.id, {
+                      duration: val && !isNaN(val) && val > 0 ? Math.min(val, 1440) : undefined,
+                    });
                   }}
                   className="w-full text-xs bg-white border border-stone-200 rounded-mac px-2.5 py-1.5 text-stone-700 focus:outline-none focus:border-stone-400 pr-14 font-mono"
                 />
@@ -281,20 +275,11 @@ export const TaskDetailModal: React.FC = () => {
             <span className="text-[10px] text-stone-400 font-medium uppercase tracking-wider mr-1">
               Presets:
             </span>
-            {[15, 25, 30, 45, 60, 90, 120].map((mins) => (
+            {[15, 25, 30, 45, 60, 90, 120, 180, 1080].map((mins) => (
               <button
                 key={mins}
                 type="button"
-                onClick={() => {
-                  const updates: Partial<Task> = { duration: mins };
-                  if (!task.dueTime) {
-                    updates.dueTime = getCurrentHourTime();
-                  }
-                  if (!task.dueDate) {
-                    updates.dueDate = formatLocalDate();
-                  }
-                  updateTask(task.id, updates);
-                }}
+                onClick={() => updateTask(task.id, { duration: mins })}
                 className={`px-2 py-0.5 text-[10px] rounded font-mono border transition-colors cursor-pointer ${
                   task.duration === mins
                     ? 'bg-blue-600 text-white border-blue-600 font-semibold'

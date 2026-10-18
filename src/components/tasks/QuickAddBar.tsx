@@ -5,9 +5,6 @@ import {
   formatDueDateDisplay,
   formatDuration,
   formatTimeRange,
-  getCurrentHourTime,
-  addMinutesToDateTime,
-  diffInMinutesDateTime,
 } from '../../lib/dateParser';
 import {
   tokenizeTaskInput,
@@ -208,71 +205,13 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
   const effectiveBatchCount = explicitBatchCount !== undefined ? explicitBatchCount : (parsed.batchCount || 1);
   const previewTitle = parsed.title.trim() || input.trim() || 'Task';
 
-  // Duration menu start and end date/hour calculations (default to current day and hour)
-  const currentHourStr = getCurrentHourTime();
-  const durationStartDate = effectiveDueDate || todayStr;
-  const durationStartTime = effectiveDueTime || currentHourStr;
-
-  const durationEnd = addMinutesToDateTime(
-    durationStartDate,
-    durationStartTime,
-    effectiveDuration && effectiveDuration > 0 ? effectiveDuration : 60
-  );
-  const durationEndDate = durationEnd.date;
-  const durationEndTime = durationEnd.time;
-
   const handleOpenDurationPicker = () => {
-    const nextOpen = !durationPickerOpen;
-    setDurationPickerOpen(nextOpen);
-    if (nextOpen && !effectiveDuration) {
-      setExplicitDuration(60);
-      if (!effectiveDueDate) setExplicitDueDate(durationStartDate);
-      if (!effectiveDueTime) setExplicitDueTime(durationStartTime);
-    }
-  };
-
-  const handleDurationStartChange = (newDate: string, newTime: string) => {
-    setExplicitDueDate(newDate);
-    setExplicitDueTime(newTime);
-    const dur = effectiveDuration && effectiveDuration > 0 ? effectiveDuration : 60;
-    setExplicitDuration(dur);
-  };
-
-  const handleDurationEndChange = (newEndDate: string, newEndTime: string) => {
-    const currentStartD = explicitDueDate || effectiveDueDate || todayStr;
-    const currentStartT = explicitDueTime || effectiveDueTime || currentHourStr;
-    let diff = diffInMinutesDateTime(currentStartD, currentStartT, newEndDate, newEndTime);
-    if (diff <= 0 && newEndDate === currentStartD) {
-      const nextDay = addMinutesToDateTime(currentStartD, '00:00', 1440).date;
-      diff = diffInMinutesDateTime(currentStartD, currentStartT, nextDay, newEndTime);
-    }
-    if (diff > 0) {
-      setExplicitDuration(Math.min(1440, diff));
-      setExplicitDueDate(currentStartD);
-      setExplicitDueTime(currentStartT);
-    }
-  };
-
-  const handleDurationPresetClick = (mins: number) => {
-    setExplicitDuration(mins);
-    const currentStartD = explicitDueDate || effectiveDueDate || todayStr;
-    const currentStartT = explicitDueTime || effectiveDueTime || currentHourStr;
-    setExplicitDueDate(currentStartD);
-    setExplicitDueTime(currentStartT);
+    setDurationPickerOpen(!durationPickerOpen);
   };
 
   const handleClearDuration = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setExplicitDuration(null);
-    setExplicitDueTime(null);
-    setDurationPickerOpen(false);
-  };
-
-  const handleDurationDone = () => {
-    const dur = effectiveDuration && effectiveDuration > 0 ? effectiveDuration : 60;
-    setExplicitDuration(dur);
-    if (!effectiveDueDate) setExplicitDueDate(durationStartDate);
-    if (!effectiveDueTime) setExplicitDueTime(durationStartTime);
     setDurationPickerOpen(false);
   };
 
@@ -778,7 +717,7 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                   <div
                     className={`fixed inset-x-3 bottom-24 sm:absolute sm:inset-auto sm:left-0 ${
                       inline ? 'sm:top-full sm:mt-1.5' : 'sm:bottom-full sm:mb-1.5'
-                    } w-auto sm:w-80 max-w-sm mx-auto sm:mx-0 bg-white rounded-sheet border border-stone-200/90 shadow-modal p-3.5 z-50 text-xs font-sans space-y-3 animate-in fade-in zoom-in-95 duration-100`}
+                    } w-auto sm:w-64 max-w-sm mx-auto sm:mx-0 bg-white rounded-sheet border border-stone-200/90 shadow-modal p-3.5 z-50 text-xs font-sans space-y-3 animate-in fade-in zoom-in-95 duration-100`}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="flex items-center justify-between pb-2 border-b border-stone-100">
@@ -789,7 +728,10 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                       {effectiveDuration && (
                         <button
                           type="button"
-                          onClick={handleClearDuration}
+                          onClick={() => {
+                            setExplicitDuration(null);
+                            setDurationPickerOpen(false);
+                          }}
                           className="text-[10px] text-stone-400 hover:text-stone-600 underline cursor-pointer"
                         >
                           Clear
@@ -797,76 +739,23 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                       )}
                     </div>
 
-                    {/* Start & End Schedule Grid */}
-                    <div className="space-y-2 pb-2.5 border-b border-stone-100">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-medium uppercase tracking-wider text-stone-400">
-                          Start & End Schedule
-                        </span>
-                        {effectiveDuration && (
-                          <span className="text-[11px] font-mono font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/60">
-                            {formatTimeRange(durationStartTime, effectiveDuration)} ({formatDuration(effectiveDuration)})
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        {/* Start Date & Hour */}
-                        <div className="space-y-1 bg-stone-50/70 p-2 rounded-mac border border-stone-200/70">
-                          <label className="flex items-center gap-1 text-[11px] font-medium text-stone-700">
-                            <Clock size={11} className="text-stone-500" />
-                            <span>Start</span>
-                          </label>
-                          <input
-                            type="date"
-                            value={durationStartDate}
-                            onChange={(e) => handleDurationStartChange(e.target.value, durationStartTime)}
-                            className="w-full bg-white border border-stone-200 hover:border-stone-300 focus:border-stone-400 rounded px-2 py-1 text-xs text-charcoal outline-none transition-colors"
-                          />
-                          <input
-                            type="time"
-                            value={durationStartTime}
-                            onChange={(e) => handleDurationStartChange(durationStartDate, e.target.value)}
-                            className="w-full bg-white border border-stone-200 hover:border-stone-300 focus:border-stone-400 rounded px-2 py-1 text-xs text-charcoal outline-none transition-colors font-mono"
-                          />
-                        </div>
-
-                        {/* End Date & Hour */}
-                        <div className="space-y-1 bg-stone-50/70 p-2 rounded-mac border border-stone-200/70">
-                          <label className="flex items-center gap-1 text-[11px] font-medium text-stone-700">
-                            <Clock size={11} className="text-blue-500" />
-                            <span>End</span>
-                          </label>
-                          <input
-                            type="date"
-                            value={durationEndDate}
-                            onChange={(e) => handleDurationEndChange(e.target.value, durationEndTime)}
-                            className="w-full bg-white border border-stone-200 hover:border-stone-300 focus:border-stone-400 rounded px-2 py-1 text-xs text-charcoal outline-none transition-colors"
-                          />
-                          <input
-                            type="time"
-                            value={durationEndTime}
-                            onChange={(e) => handleDurationEndChange(durationEndDate, e.target.value)}
-                            className="w-full bg-white border border-stone-200 hover:border-stone-300 focus:border-stone-400 rounded px-2 py-1 text-xs text-charcoal outline-none transition-colors font-mono"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
                     {/* Quick Presets */}
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-medium uppercase tracking-wider text-stone-400">
                         Quick Presets
                       </label>
-                      <div className="grid grid-cols-4 gap-1">
-                        {[15, 25, 30, 45, 60, 90, 120, 180].map((mins) => (
+                      <div className="grid grid-cols-3 gap-1">
+                        {[15, 25, 30, 45, 60, 90, 120, 180, 1080].map((mins) => (
                           <button
                             key={mins}
                             type="button"
-                            onClick={() => handleDurationPresetClick(mins)}
+                            onClick={() => {
+                              setExplicitDuration(mins);
+                              setDurationPickerOpen(false);
+                            }}
                             className={`py-1 rounded-mac text-xs font-medium border transition-colors cursor-pointer text-center ${
                               effectiveDuration === mins
-                                ? 'bg-blue-600 text-white border-blue-600'
+                                ? 'bg-blue-600 text-white border-blue-600 font-semibold'
                                 : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200'
                             }`}
                           >
@@ -890,21 +779,13 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                           value={effectiveDuration || ''}
                           onChange={(e) => {
                             const val = e.target.value ? parseInt(e.target.value, 10) : null;
-                            if (val && !isNaN(val) && val > 0) {
-                              setExplicitDuration(Math.min(val, 1440));
-                              const currentStartD = explicitDueDate || effectiveDueDate || todayStr;
-                              const currentStartT = explicitDueTime || effectiveDueTime || currentHourStr;
-                              setExplicitDueDate(currentStartD);
-                              setExplicitDueTime(currentStartT);
-                            } else {
-                              setExplicitDuration(null);
-                            }
+                            setExplicitDuration(val && !isNaN(val) && val > 0 ? Math.min(val, 1440) : null);
                           }}
-                          className="flex-1 bg-stone-50 border border-stone-200 hover:border-stone-300 focus:border-stone-400 focus:bg-white rounded-mac px-2.5 py-1 text-xs text-charcoal outline-none transition-colors"
+                          className="flex-1 bg-stone-50 border border-stone-200 hover:border-stone-300 focus:border-stone-400 focus:bg-white rounded-mac px-2.5 py-1 text-xs text-charcoal outline-none transition-colors font-mono"
                         />
                         <button
                           type="button"
-                          onClick={handleDurationDone}
+                          onClick={() => setDurationPickerOpen(false)}
                           className="px-2.5 py-1 text-xs font-medium text-white bg-charcoal hover:bg-stone-800 rounded-mac transition-colors cursor-pointer"
                         >
                           Done

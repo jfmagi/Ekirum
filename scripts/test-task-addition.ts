@@ -783,6 +783,10 @@ assert.strictEqual(formatTimeRange('15:00', '60'), '15-16');
 assert.strictEqual(formatDueDateDisplay(todayStr, '10:00', '120'), `Today, 10-12`);
 assert.strictEqual(formatDueDateDisplay(undefined, '10:00', '120'), '10-12');
 
+// 29h: 18h duration formatting (1080 minutes)
+assert.strictEqual(formatDuration(1080), '18h', '1080 minutes must format as 18h');
+assert.strictEqual(formatTimeRange('06:00', 1080), '6-0');
+
 console.log('Test 29: Hours Range Display, Word Number Duration Parsing & Tokenization: PASSED');
 
 console.log('\n🎉 ALL TASK ADDITION & RECURRENCE TESTS PASSED!');
