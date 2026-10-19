@@ -255,17 +255,46 @@ export async function atomicWriteFile(
 }
 
 /**
- * Export current local state and write atomically to device-<deviceId>.json.
- * This file is read by other devices to synchronize recent changes.
+ * Export current local state and write to a fresh write-once device-<deviceId>-<timestamp>.json file
+ * whenever local data has changed, removing any superseded own device files.
+ * Using a fresh filename avoids macOS Google Drive FileProvider dropping cloud sync (.crswap overwrite bug)
+ * and prevents Android SAF from generating " (1)" conflict files.
  */
-export async function writeDeviceFile(handle: FileSystemDirectoryHandle): Promise<boolean> {
+export async function writeDeviceFile(
+  handle: FileSystemDirectoryHandle,
+  forceWrite = false
+): Promise<boolean> {
   if (!handle || typeof (handle as any).getFileHandle !== 'function') return false;
   try {
     const deviceId = await getOrCreateDeviceId();
     const backupData = await exportAll(deviceId);
+    const tablesFingerprint = JSON.stringify(backupData.tables);
+
+    const entries = await getDirectoryEntries(handle);
+    const ownEntries = entries.filter(
+      (e) => e.kind === 'file' && classifySyncEntry(e.name, deviceId).kind === 'own-device'
+    );
+    const hasTimestampedOwnFile = ownEntries.some((e) => /^device-.+-\d{10,15}\.json$/i.test(e.name));
+
+    const lastHashRecord = await db.settings.get('lastExportedTablesHash');
+    if (!forceWrite && lastHashRecord?.value === tablesFingerprint && hasTimestampedOwnFile) {
+      // Data has not changed since last export and our write-once timestamped device file is present
+      return true;
+    }
+
     const jsonContent = JSON.stringify(backupData, null, 2);
-    const deviceFileName = `device-${deviceId}.json`;
-    await atomicWriteFile(handle, deviceFileName, jsonContent);
+    const newFileName = `device-${deviceId}-${Date.now()}.json`;
+    await atomicWriteFile(handle, newFileName, jsonContent);
+
+    if (typeof (handle as any).removeEntry === 'function') {
+      for (const oldEntry of ownEntries) {
+        if (oldEntry.name !== newFileName) {
+          await handle.removeEntry(oldEntry.name).catch(() => {});
+        }
+      }
+    }
+
+    await db.settings.put({ key: 'lastExportedTablesHash', value: tablesFingerprint });
     return true;
   } catch (err) {
     console.error('Failed to write device sync file:', err);
@@ -293,14 +322,23 @@ export async function performDailyBackup(
     return false; // Backup is fresh (<24h)
   }
 
-  const backupData = await exportAll(deviceId);
-  const jsonContent = JSON.stringify(backupData, null, 2);
-
   const todayStr = formatLocalDate();
   const dailyFileName = `backup-${todayStr}.json`;
 
   try {
-    await atomicWriteFile(handle, dailyFileName, jsonContent);
+    // Check if today's daily snapshot already exists in the folder.
+    // Never overwrite an existing daily snapshot in-place because macOS Google Drive FileProvider
+    // drops com.google.drivefs.item-id#S when an existing file is overwritten via .crswap.
+    const entries = await getDirectoryEntries(handle);
+    const existingDaily = entries.some(
+      (e) => e.kind === 'file' && e.name.toLowerCase() === dailyFileName.toLowerCase()
+    );
+
+    if (!existingDaily) {
+      const backupData = await exportAll(deviceId);
+      const jsonContent = JSON.stringify(backupData, null, 2);
+      await atomicWriteFile(handle, dailyFileName, jsonContent);
+    }
 
     // Update timestamp
     const nowIso = new Date().toISOString();
@@ -326,7 +364,7 @@ export async function performBackup(
   handle: FileSystemDirectoryHandle,
   force = false
 ): Promise<boolean> {
-  const deviceOk = await writeDeviceFile(handle);
+  const deviceOk = await writeDeviceFile(handle, force);
   const dailyOk = await performDailyBackup(handle, force);
   return deviceOk || dailyOk;
 }
@@ -448,11 +486,20 @@ function classifySyncEntry(
   }
 
   const lower = name.toLowerCase();
+
+  // Clean up orphaned Chromium swap files (.crswap)
+  if (lower.includes('.crswap')) {
+    return { shouldProcess: false, isArtifactToClean: true, kind: 'own-artifact' };
+  }
+
   const ownPrefix = `device-${localDeviceId}`.toLowerCase();
   const ownCanonicalName = `${ownPrefix}.json`;
 
-  // Own primary device file
-  if (lower === ownCanonicalName) {
+  // Own primary device file (legacy device-<id>.json or write-once device-<id>-<timestamp>.json)
+  if (
+    lower === ownCanonicalName ||
+    (lower.startsWith(`${ownPrefix}-`) && /^device-[a-z0-9-]+-\d{10,15}\.json$/.test(lower))
+  ) {
     return { shouldProcess: false, isArtifactToClean: false, kind: 'own-device' };
   }
 
@@ -461,7 +508,7 @@ function classifySyncEntry(
     return { shouldProcess: false, isArtifactToClean: true, kind: 'own-artifact' };
   }
 
-  // Canonical foreign device-<id>.json file (or conflict copy like "device-<id> (1).json")
+  // Canonical foreign device-<id>.json or device-<id>-<timestamp>.json file (or conflict copy)
   if (lower.startsWith('device-') && lower.endsWith('.json') && !lower.includes('.tmp')) {
     const isConflictCopy = /\(\d+\)\.json$/.test(lower);
     return { shouldProcess: true, isArtifactToClean: isConflictCopy, kind: 'device' };
@@ -779,8 +826,8 @@ async function executeBackupAndSyncPass(force: boolean, forceFullResync = false)
     const totalChanges = syncRes.mergeResult?.totalChanges || 0;
     const filesProcessed = syncRes.filesProcessed || 0;
 
-    // 2. Export our up-to-date state (including any new local changes or merged foreign records) to device-<id>.json
-    const deviceWriteOk = await writeDeviceFile(handle);
+    // 2. Export our up-to-date state (only writes when local data changed or no write-once file exists yet)
+    const deviceWriteOk = await writeDeviceFile(handle, false);
 
     // 3. Daily backup snapshot (if >=24h or forced)
     await performDailyBackup(handle, force);
