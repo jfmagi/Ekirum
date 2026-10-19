@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ekirum-cache-v11';
+const CACHE_NAME = 'ekirum-cache-v12';
 
 const PRECACHE_ASSETS = [
   '/',

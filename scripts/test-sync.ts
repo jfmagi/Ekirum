@@ -446,6 +446,228 @@ async function runTests() {
   }
   console.log(`  ✓ Same timestamp differing content update applied: "${retrievedUpdated.title}".`);
 
+  // Test 13: Lower-progress device with NEWER updatedAt timestamps still receives higher progress
+  console.log('\nTest 13: Lower-progress device with newer updatedAt receives higher progress across all tables...');
+  const newerLocalTime = '2026-10-19T12:00:00.000Z';
+  const olderRemoteTime = '2026-10-18T08:00:00.000Z';
+
+  await db.tasks.put({
+    id: 'task-progress-sync',
+    projectId: 'proj-1',
+    title: 'Important Quest',
+    priority: 'p1',
+    labels: [],
+    completed: false,
+    subtasks: [
+      { id: 'sub-1', title: 'Step 1', completed: false },
+      { id: 'sub-2', title: 'Step 2', completed: false },
+    ],
+    createdAt: '2026-10-15T00:00:00.000Z',
+    updatedAt: newerLocalTime,
+    isDeleted: false,
+  });
+
+  await db.habits.put({
+    id: 'habit-progress-sync',
+    title: 'Daily Reading',
+    frequency: 'daily',
+    streak: 1,
+    longestStreak: 1,
+    completedDates: ['2026-10-15'],
+    xpReward: 15,
+    createdAt: '2026-10-15T00:00:00.000Z',
+    updatedAt: newerLocalTime,
+    isDeleted: false,
+  });
+
+  await db.libraryItems.put({
+    id: 'lib-progress-sync',
+    type: 'book',
+    title: 'Deep Work',
+    status: 'in-progress',
+    xpAwarded: false,
+    createdAt: '2026-10-15T00:00:00.000Z',
+    updatedAt: newerLocalTime,
+    isDeleted: false,
+  });
+
+  const higherProgressPayload = {
+    schemaVersion: 1,
+    deviceId: 'device-higher-progress',
+    exportedAt: olderRemoteTime,
+    tables: {
+      tasks: [
+        {
+          id: 'task-progress-sync',
+          projectId: 'proj-1',
+          title: 'Important Quest',
+          priority: 'p1',
+          labels: [],
+          completed: true,
+          completedAt: olderRemoteTime,
+          subtasks: [
+            { id: 'sub-1', title: 'Step 1', completed: true },
+            { id: 'sub-2', title: 'Step 2', completed: false },
+          ],
+          createdAt: '2026-10-15T00:00:00.000Z',
+          updatedAt: olderRemoteTime,
+          isDeleted: false,
+        },
+      ],
+      habits: [
+        {
+          id: 'habit-progress-sync',
+          title: 'Daily Reading',
+          frequency: 'daily',
+          streak: 3,
+          longestStreak: 3,
+          completedDates: ['2026-10-15', '2026-10-16', '2026-10-17'],
+          xpReward: 15,
+          createdAt: '2026-10-15T00:00:00.000Z',
+          updatedAt: olderRemoteTime,
+          isDeleted: false,
+        },
+      ],
+      libraryItems: [
+        {
+          id: 'lib-progress-sync',
+          type: 'book',
+          title: 'Deep Work',
+          status: 'done',
+          xpAwarded: true,
+          completedAt: olderRemoteTime,
+          createdAt: '2026-10-15T00:00:00.000Z',
+          updatedAt: olderRemoteTime,
+          isDeleted: false,
+        },
+      ],
+    },
+  };
+
+  const progressMergeRes = await importAndMerge(higherProgressPayload);
+  if (!progressMergeRes.success || progressMergeRes.totalChanges < 3) {
+    throw new Error(
+      `Expected lower-progress device to apply changes from higher-progress payload, got totalChanges=${progressMergeRes.totalChanges}`
+    );
+  }
+
+  const mergedProgressTask = await db.tasks.get('task-progress-sync');
+  if (!mergedProgressTask?.completed || !mergedProgressTask.subtasks.find((s) => s.id === 'sub-1')?.completed) {
+    throw new Error('Task and subtask completion progress was not preserved when local updatedAt was newer.');
+  }
+
+  const mergedProgressHabit = await db.habits.get('habit-progress-sync');
+  if (!mergedProgressHabit || mergedProgressHabit.completedDates.length !== 3 || mergedProgressHabit.longestStreak < 3) {
+    throw new Error(`Habit completedDates were not unioned: got ${JSON.stringify(mergedProgressHabit?.completedDates)}`);
+  }
+
+  const mergedProgressLib = await db.libraryItems.get('lib-progress-sync');
+  if (!mergedProgressLib || mergedProgressLib.status !== 'done' || !mergedProgressLib.xpAwarded) {
+    throw new Error('Library item completion progress was not preserved.');
+  }
+  console.log('  ✓ Lower-progress device updated tasks, subtasks, habits, and library items despite newer local updatedAt.');
+
+  // Test 14: syncDeviceFiles merges snapshots even when device-*.json files exist, and prunes redundant foreign device files
+  console.log('\nTest 14: syncDeviceFiles merges both device files and snapshots & cleans up redundant foreign device files...');
+  const removedEntries: string[] = [];
+  const multiFiles = [
+    {
+      name: 'device-foreign-old.json',
+      lastModified: 1000,
+      content: JSON.stringify({
+        schemaVersion: 1,
+        deviceId: 'foreign-old',
+        exportedAt: '2026-10-10T10:00:00.000Z',
+        tables: {
+          tasks: [
+            {
+              id: 'task-from-old-device',
+              projectId: 'proj-1',
+              title: 'Old Device Task',
+              priority: 'p2',
+              labels: [],
+              completed: true,
+              completedAt: '2026-10-10T10:00:00.000Z',
+              subtasks: [],
+              createdAt: '2026-10-10T09:00:00.000Z',
+              updatedAt: '2026-10-10T10:00:00.000Z',
+              isDeleted: false,
+            },
+          ],
+        },
+      }),
+    },
+    {
+      name: 'device-foreign-active.json',
+      lastModified: 2000,
+      content: JSON.stringify({
+        schemaVersion: 1,
+        deviceId: 'foreign-active',
+        exportedAt: '2026-10-18T10:00:00.000Z',
+        tables: {
+          tasks: [],
+        },
+      }),
+    },
+    {
+      name: 'backup-2026-10-19.json',
+      lastModified: 3000,
+      content: JSON.stringify({
+        schemaVersion: 1,
+        deviceId: 'foreign-active',
+        exportedAt: '2026-10-19T10:00:00.000Z',
+        tables: {
+          tasks: [
+            {
+              id: 'task-from-snapshot-alongside-device',
+              projectId: 'proj-1',
+              title: 'Snapshot Task Alongside Device File',
+              priority: 'p1',
+              labels: [],
+              completed: true,
+              completedAt: '2026-10-19T10:00:00.000Z',
+              subtasks: [],
+              createdAt: '2026-10-19T09:00:00.000Z',
+              updatedAt: '2026-10-19T10:00:00.000Z',
+              isDeleted: false,
+            },
+          ],
+        },
+      }),
+    },
+  ];
+
+  const multiDirHandle = {
+    removeEntry: async (name: string) => {
+      removedEntries.push(name);
+    },
+    values: async function* () {
+      for (const f of multiFiles) {
+        yield {
+          kind: 'file',
+          name: f.name,
+          getFile: async () => ({
+            name: f.name,
+            size: f.content.length,
+            lastModified: f.lastModified,
+            text: async () => f.content,
+          }),
+        };
+      }
+    },
+  } as any;
+
+  await syncDeviceFiles(multiDirHandle, true, true);
+  const taskFromSnapshotAlongside = await db.tasks.get('task-from-snapshot-alongside-device');
+  const taskFromOldDevice = await db.tasks.get('task-from-old-device');
+  if (!taskFromSnapshotAlongside || !taskFromOldDevice) {
+    throw new Error('Failed to merge both snapshot and device files when both are present in sync folder.');
+  }
+  if (!removedEntries.includes('device-foreign-old.json') || removedEntries.includes('device-foreign-active.json')) {
+    throw new Error(`Expected redundant device-foreign-old.json to be pruned, got removedEntries=${JSON.stringify(removedEntries)}`);
+  }
+  console.log('  ✓ Merged both device files and backup snapshots and pruned redundant foreign device file.');
+
   console.log('\n🎉 ALL TESTS PASSED! Dexie schema, migrations, exportAll, and LWW importAndMerge are verified!\n');
 }
 

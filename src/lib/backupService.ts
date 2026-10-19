@@ -122,13 +122,17 @@ export async function getBackupStatus(): Promise<BackupStatus> {
   let dailyBackupCount = 0;
   if (permission === 'granted') {
     try {
+      const supersededRecord = await db.settings.get('supersededDeviceFiles');
+      const supersededSet = new Set<string>(
+        Array.isArray(supersededRecord?.value) ? supersededRecord.value : []
+      );
       const entries = await getDirectoryEntries(handle);
       for (const entry of entries) {
         if (entry.kind === 'file') {
           const c = classifySyncEntry(entry.name, deviceId);
-          if (c.kind === 'device') {
+          if (c.kind === 'device' && !c.isArtifactToClean && !supersededSet.has(entry.name)) {
             foreignDeviceCount++;
-          } else if (c.kind === 'snapshot') {
+          } else if (c.kind === 'snapshot' && !c.isArtifactToClean) {
             dailyBackupCount++;
           }
         }
@@ -177,8 +181,8 @@ export async function pickBackupDirectory(): Promise<{ success: boolean; name?: 
 
     await saveDirectoryHandle(handle);
 
-    // 1. Immediately merge foreign devices from the selected folder
-    await syncDeviceFiles(handle, true);
+    // 1. Immediately merge foreign devices and snapshots from the selected folder
+    await syncDeviceFiles(handle, true, true);
     // 2. Export local state to device-<id>.json so other devices can sync our data
     await writeDeviceFile(handle);
     // 3. Create initial daily backup snapshot
@@ -227,10 +231,22 @@ export async function atomicWriteFile(
 ): Promise<void> {
   if (!handle || typeof (handle as any).getFileHandle !== 'function') return;
 
-  const fileHandle = await handle.getFileHandle(fileName, { create: true });
-  const writable = await (fileHandle as any).createWritable();
-  await writable.write(content);
-  await writable.close();
+  try {
+    const fileHandle = await handle.getFileHandle(fileName, { create: true });
+    const writable = await (fileHandle as any).createWritable();
+    await writable.write(content);
+    await writable.close();
+  } catch (writeErr) {
+    if (typeof (handle as any).removeEntry === 'function') {
+      await handle.removeEntry(fileName).catch(() => {});
+      const fileHandle = await handle.getFileHandle(fileName, { create: true });
+      const writable = await (fileHandle as any).createWritable();
+      await writable.write(content);
+      await writable.close();
+    } else {
+      throw writeErr;
+    }
+  }
 
   // Clean up any legacy .tmp file left by older versions
   if (typeof (handle as any).removeEntry === 'function') {
@@ -417,7 +433,7 @@ export interface BackupAndSyncResult {
 export interface SyncClassification {
   shouldProcess: boolean;
   isArtifactToClean: boolean;
-  kind: 'device' | 'snapshot' | 'none';
+  kind: 'device' | 'snapshot' | 'own-device' | 'own-artifact' | 'none';
 }
 
 /**
@@ -432,14 +448,20 @@ function classifySyncEntry(
   }
 
   const lower = name.toLowerCase();
-  const ownCanonicalName = `device-${localDeviceId}.json`.toLowerCase();
+  const ownPrefix = `device-${localDeviceId}`.toLowerCase();
+  const ownCanonicalName = `${ownPrefix}.json`;
 
-  // Skip own primary device file
+  // Own primary device file
   if (lower === ownCanonicalName) {
-    return { shouldProcess: false, isArtifactToClean: false, kind: 'none' };
+    return { shouldProcess: false, isArtifactToClean: false, kind: 'own-device' };
   }
 
-  // Canonical foreign device-<id>.json file
+  // Own conflict copy or .tmp artifact (e.g. "device-<localId> (1).json" or "device-<localId>.json.tmp")
+  if (lower.startsWith(ownPrefix)) {
+    return { shouldProcess: false, isArtifactToClean: true, kind: 'own-artifact' };
+  }
+
+  // Canonical foreign device-<id>.json file (or conflict copy like "device-<id> (1).json")
   if (lower.startsWith('device-') && lower.endsWith('.json') && !lower.includes('.tmp')) {
     const isConflictCopy = /\(\d+\)\.json$/.test(lower);
     return { shouldProcess: true, isArtifactToClean: isConflictCopy, kind: 'device' };
@@ -454,15 +476,19 @@ function classifySyncEntry(
   }
 
   // Daily backup snapshots or exported backups (e.g. backup-YYYY-MM-DD.json or ekirum-backup-*.json)
-  if ((lower.startsWith('backup-') || lower.startsWith('ekirum-backup-')) && lower.endsWith('.json')) {
-    return { shouldProcess: true, isArtifactToClean: false, kind: 'snapshot' };
+  if (
+    (lower.startsWith('backup-') || lower.startsWith('ekirum-backup-')) &&
+    (lower.endsWith('.json') || lower.endsWith('.tmp') || /\.json\s*\(\d+\)$/.test(lower))
+  ) {
+    const isArtifact = !lower.endsWith('.json') || /\(\d+\)\.json$/.test(lower);
+    return { shouldProcess: true, isArtifactToClean: isArtifact, kind: 'snapshot' };
   }
 
   return { shouldProcess: false, isArtifactToClean: false, kind: 'none' };
 }
 
 /**
- * Scan the shared backup folder for other device-<id>.json files (or fallback snapshot) and merge them in.
+ * Scan the shared backup folder for other device-<id>.json files and backup snapshots and merge them in.
  */
 export async function syncDeviceFiles(
   handle: FileSystemDirectoryHandle,
@@ -493,49 +519,80 @@ export async function syncDeviceFiles(
     let filesProcessed = 0;
     let filesFailed = 0;
 
-    const syncMtimesRecord = await db.settings.get('deviceSyncMtimes');
+    const [syncMtimesRecord, supersededRecord] = await Promise.all([
+      db.settings.get('deviceSyncMtimes'),
+      db.settings.get('supersededDeviceFiles'),
+    ]);
     const syncMtimes: Record<string, any> =
       syncMtimesRecord?.value && typeof syncMtimesRecord.value === 'object'
         ? { ...syncMtimesRecord.value }
         : {};
+    const supersededSet = new Set<string>(
+      Array.isArray(supersededRecord?.value) ? supersededRecord.value : []
+    );
     let mtimesChanged = false;
+    let supersededChanged = false;
 
     const MAX_DEVICE_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 
     const entries = await getDirectoryEntries(handle);
 
-    // Group foreign device files and foreign snapshot files
-    const deviceCandidates: FileSystemHandle[] = [];
-    const snapshotCandidates: FileSystemHandle[] = [];
+    const candidatesToExamine: {
+      entry: FileSystemHandle;
+      isArtifactToClean: boolean;
+      isSnapshot: boolean;
+      isCanonicalForeignDevice: boolean;
+    }[] = [];
 
     for (const entry of entries) {
       if (entry.kind !== 'file') continue;
       const classification = classifySyncEntry(entry.name, localDeviceId);
-      if (!classification.shouldProcess) continue;
-      if (classification.kind === 'device') {
-        deviceCandidates.push(entry);
-      } else if (classification.kind === 'snapshot') {
-        snapshotCandidates.push(entry);
+
+      if (classification.kind === 'own-artifact') {
+        if (typeof (handle as any).removeEntry === 'function') {
+          await handle.removeEntry(entry.name).catch(() => {});
+        }
+        continue;
       }
+
+      if (classification.kind === 'own-device') {
+        if (forceFullResync) {
+          candidatesToExamine.push({
+            entry,
+            isArtifactToClean: false,
+            isSnapshot: false,
+            isCanonicalForeignDevice: false,
+          });
+        }
+        continue;
+      }
+
+      if (!classification.shouldProcess) continue;
+
+      candidatesToExamine.push({
+        entry,
+        isArtifactToClean: classification.isArtifactToClean,
+        isSnapshot: classification.kind === 'snapshot',
+        isCanonicalForeignDevice: classification.kind === 'device' && !classification.isArtifactToClean,
+      });
     }
 
-    // Process all foreign device files first.
-    // If no foreign device files are present in the folder, process the newest snapshot backup.
-    const candidatesToProcess: { entry: FileSystemHandle; isArtifactToClean: boolean; isSnapshot: boolean }[] = [];
-
-    for (const entry of deviceCandidates) {
-      const { isArtifactToClean } = classifySyncEntry(entry.name, localDeviceId);
-      candidatesToProcess.push({ entry, isArtifactToClean, isSnapshot: false });
+    interface ParsedCandidate {
+      entry: FileSystemHandle;
+      data: any;
+      isArtifactToClean: boolean;
+      isSnapshot: boolean;
+      isCanonicalForeignDevice: boolean;
+      currentMtime: number;
+      currentSize: number;
+      currentExportedAt: string;
+      sortTime: number;
+      shouldMerge: boolean;
     }
 
-    if (deviceCandidates.length === 0 && snapshotCandidates.length > 0) {
-      // Sort snapshots descending so the newest snapshot is evaluated
-      snapshotCandidates.sort((a, b) => b.name.localeCompare(a.name));
-      const newestSnapshot = snapshotCandidates[0];
-      candidatesToProcess.push({ entry: newestSnapshot, isArtifactToClean: false, isSnapshot: true });
-    }
+    const parsedCandidates: ParsedCandidate[] = [];
 
-    for (const { entry, isArtifactToClean, isSnapshot } of candidatesToProcess) {
+    for (const { entry, isArtifactToClean, isSnapshot, isCanonicalForeignDevice } of candidatesToExamine) {
       try {
         const file = await (entry as any).getFile();
 
@@ -555,14 +612,23 @@ export async function syncDeviceFiles(
 
         const data = JSON.parse(text);
 
-        // If snapshot originated from the local device itself, skip it
-        if (isSnapshot && data?.deviceId === localDeviceId) {
-          continue;
-        }
-
         const currentMtime = typeof file.lastModified === 'number' ? file.lastModified : 0;
         const currentSize = typeof file.size === 'number' && file.size > 0 ? file.size : text.length;
         const currentExportedAt = typeof data?.exportedAt === 'string' ? data.exportedAt : '';
+        const exportedMs = currentExportedAt ? Date.parse(currentExportedAt) : NaN;
+        const sortTime = !Number.isNaN(exportedMs) ? exportedMs : currentMtime;
+
+        // If a snapshot originated from the local device itself, skip it during normal sync
+        // (during forceFullResync, we still evaluate it in case local DB was reset or behind).
+        if (isSnapshot && data?.deviceId === localDeviceId && !forceFullResync) {
+          syncMtimes[entry.name] = {
+            mtime: currentMtime,
+            size: currentSize,
+            exportedAt: currentExportedAt,
+          };
+          mtimesChanged = true;
+          continue;
+        }
 
         const prevMeta = syncMtimes[entry.name];
         const prevMtime = typeof prevMeta === 'number' ? prevMeta : (prevMeta?.mtime ?? -1);
@@ -578,10 +644,40 @@ export async function syncDeviceFiles(
           currentSize === prevSize &&
           currentExportedAt === prevExportedAt;
 
-        if (isUnchanged) {
-          continue;
+        if (!isUnchanged && supersededSet.has(entry.name)) {
+          supersededSet.delete(entry.name);
+          supersededChanged = true;
         }
 
+        parsedCandidates.push({
+          entry,
+          data,
+          isArtifactToClean,
+          isSnapshot,
+          isCanonicalForeignDevice,
+          currentMtime,
+          currentSize,
+          currentExportedAt,
+          sortTime,
+          shouldMerge: !isUnchanged,
+        });
+      } catch (e) {
+        filesFailed++;
+        if (isArtifactToClean && typeof (handle as any).removeEntry === 'function') {
+          await handle.removeEntry(entry.name).catch(() => {});
+        }
+        console.warn(`Error reading device sync file ${entry.name}:`, e);
+      }
+    }
+
+    // Sort candidates chronologically ascending (oldest first, newest last)
+    // so newer snapshots and active device files always have the final word on LWW fields.
+    parsedCandidates.sort((a, b) => a.sortTime - b.sortTime);
+
+    for (const candidate of parsedCandidates) {
+      if (!candidate.shouldMerge) continue;
+      const { entry, data, isArtifactToClean, currentMtime, currentSize, currentExportedAt } = candidate;
+      try {
         const mergeRes = await importAndMerge(data);
         if (mergeRes.success) {
           filesProcessed++;
@@ -603,19 +699,43 @@ export async function syncDeviceFiles(
         }
       } catch (e) {
         filesFailed++;
-        if (isArtifactToClean && typeof (handle as any).removeEntry === 'function') {
-          await handle.removeEntry(entry.name).catch(() => {});
+        console.warn(`Error merging device sync file ${entry.name}:`, e);
+      }
+    }
+
+    // If multiple canonical foreign device-<id>.json files exist (e.g. orphaned files from old browser resets),
+    // keep the newest foreign device file and clean up older superseded ones once all candidates have been merged.
+    const canonicalForeign = parsedCandidates
+      .filter((c) => c.isCanonicalForeignDevice)
+      .sort((a, b) => b.sortTime - a.sortTime);
+
+    if (canonicalForeign.length > 1 && filesFailed === 0) {
+      const newestForeign = canonicalForeign[0];
+      if (supersededSet.has(newestForeign.entry.name)) {
+        supersededSet.delete(newestForeign.entry.name);
+        supersededChanged = true;
+      }
+      const redundantForeign = canonicalForeign.slice(1);
+      for (const stale of redundantForeign) {
+        if (typeof (handle as any).removeEntry === 'function') {
+          await handle.removeEntry(stale.entry.name).catch(() => {});
         }
-        console.warn(`Error reading device sync file ${entry.name}:`, e);
+        if (!supersededSet.has(stale.entry.name)) {
+          supersededSet.add(stale.entry.name);
+          supersededChanged = true;
+        }
       }
     }
 
     if (mtimesChanged) {
       await db.settings.put({ key: 'deviceSyncMtimes', value: syncMtimes });
     }
+    if (supersededChanged) {
+      await db.settings.put({ key: 'supersededDeviceFiles', value: Array.from(supersededSet) });
+    }
 
     const nowIso = new Date(now).toISOString();
-    if (filesProcessed > 0) {
+    if (filesProcessed > 0 || force) {
       await db.settings.put({ key: 'lastSyncAt', value: nowIso });
     }
     await db.settings.put({ key: 'lastSyncCheckAt', value: nowIso });

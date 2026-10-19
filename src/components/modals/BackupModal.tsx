@@ -269,12 +269,14 @@ export const BackupModal: React.FC = () => {
   const handleSyncNow = async () => {
     const res = await triggerBackupAndSync(true, true);
     if (res.success) {
-      if (res.filesProcessed > 0) {
+      if (res.totalChanges > 0) {
         setActionMessage(
-          `Synced with ${res.filesProcessed} device file${res.filesProcessed === 1 ? '' : 's'} (${res.totalChanges} changes applied).`
+          `Sync complete (${res.totalChanges} change${res.totalChanges === 1 ? '' : 's'} applied).`
         );
+      } else if (res.filesProcessed > 0) {
+        setActionMessage('Sync complete — already up to date.');
       } else {
-        setActionMessage('Backup saved locally. (0 other device files found in folder)');
+        setActionMessage('Backup saved to sync folder.');
       }
       setTimeout(() => setActionMessage(null), 3500);
     } else {

@@ -633,8 +633,28 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           const activeSkills = allSkills.filter((s) => !s.isDeleted);
           const activeHabits = allHabits.filter((h) => !h.isDeleted);
           let currentUser: UserProfile = allUsers[0]
-            ? { ...allUsers[0], achievements: [...(allUsers[0].achievements || [])] }
-            : { ...INITIAL_USER, achievements: [...(INITIAL_USER.achievements || [])] };
+            ? { ...allUsers[0], id: 'default', achievements: [...(allUsers[0].achievements || [])] }
+            : { ...INITIAL_USER, id: 'default', achievements: [...(INITIAL_USER.achievements || [])] };
+
+          if (allUsers.length > 1) {
+            const achSet = new Set<string>(currentUser.achievements || []);
+            let maxTotalXp = currentUser.totalXp || 0;
+            for (const u of allUsers) {
+              if ((u.totalXp || 0) > maxTotalXp) {
+                maxTotalXp = u.totalXp || 0;
+              }
+              (u.achievements || []).forEach((id) => achSet.add(id));
+            }
+            const { level, rank } = computeUserLevelAndRank(maxTotalXp);
+            currentUser = {
+              ...currentUser,
+              id: 'default',
+              totalXp: maxTotalXp,
+              ekirumLevel: level,
+              ekirumRank: rank,
+              achievements: Array.from(achSet),
+            };
+          }
           const currentAchs = allAchievements.length > 0 ? allAchievements : INITIAL_ACHIEVEMENTS;
 
           const { updatedAchievements, newlyUnlocked, earnedXpBonus, hasChanges, projectSkillXpGains } = evaluateAchievements(
@@ -648,11 +668,13 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           );
 
           const { updatedSkills } = applySkillXpGains(activeSkills, projectSkillXpGains);
+          const dbWritePromises: Promise<unknown>[] = [];
+
           if (projectSkillXpGains && Object.keys(projectSkillXpGains).length > 0) {
-            db.skills.bulkPut(updatedSkills).catch(saveCatch('updating skills'));
+            dbWritePromises.push(db.skills.bulkPut(updatedSkills).catch(saveCatch('updating skills')));
           }
 
-          if (newlyUnlocked.length > 0 || earnedXpBonus > 0) {
+          if (newlyUnlocked.length > 0 || earnedXpBonus > 0 || allUsers.length > 1) {
             const unlockedIds = newlyUnlocked.map((a) => a.id);
             const currentAchIds = new Set(currentUser.achievements || []);
             unlockedIds.forEach((id) => currentAchIds.add(id));
@@ -666,11 +688,15 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               achievements: Array.from(currentAchIds),
               updatedAt: new Date().toISOString(),
             };
-            db.userProfile.put(currentUser).catch(saveCatch('updating user profile'));
+            dbWritePromises.push(db.userProfile.put(currentUser).catch(saveCatch('updating user profile')));
           }
 
           if (hasChanges) {
-            db.achievements.bulkPut(updatedAchievements).catch(saveCatch('updating achievements'));
+            dbWritePromises.push(db.achievements.bulkPut(updatedAchievements).catch(saveCatch('updating achievements')));
+          }
+
+          if (dbWritePromises.length > 0) {
+            await Promise.all(dbWritePromises);
           }
 
           set({

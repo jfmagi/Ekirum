@@ -128,14 +128,14 @@ export const App: React.FC = () => {
     const handleFirstGesture = () => {
       if (triggered) return;
       triggered = true;
-      window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('click', handleFirstGesture);
       window.removeEventListener('keydown', handleFirstGesture);
       void reconnectBackupFolder();
     };
-    window.addEventListener('pointerdown', handleFirstGesture, { once: true, passive: true });
+    window.addEventListener('click', handleFirstGesture, { once: true, passive: true });
     window.addEventListener('keydown', handleFirstGesture, { once: true, passive: true });
     return () => {
-      window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('click', handleFirstGesture);
       window.removeEventListener('keydown', handleFirstGesture);
     };
   }, [backupStatus?.folderName, backupStatus?.permission, reconnectBackupFolder]);

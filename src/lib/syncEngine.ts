@@ -11,7 +11,7 @@ import {
   LibraryItem,
 } from '../types';
 import { calculateHabitStreak } from '../store/useEkirumStore';
-import { computeUserLevelAndRank } from './characterMath';
+import { computeUserLevelAndRank, calculateSkillLevel } from './characterMath';
 import {
   sanitizeTask,
   sanitizeProject,
@@ -149,8 +149,12 @@ export function mergeUserProfiles(
     chosenProfile = isIncomingNewer ? incoming : existing;
   }
 
-  const dailyXpDate = isIncomingNewer ? incoming.dailyXpDate : existing.dailyXpDate;
-  const dailyXpEarned = isIncomingNewer ? incoming.dailyXpEarned : existing.dailyXpEarned;
+  let dailyXpDate = isIncomingNewer ? incoming.dailyXpDate : existing.dailyXpDate;
+  let dailyXpEarned = isIncomingNewer ? incoming.dailyXpEarned : existing.dailyXpEarned;
+  if (existing.dailyXpDate && incoming.dailyXpDate && existing.dailyXpDate === incoming.dailyXpDate) {
+    dailyXpDate = existing.dailyXpDate;
+    dailyXpEarned = Math.max(existing.dailyXpEarned || 0, incoming.dailyXpEarned || 0);
+  }
 
   return {
     ...chosenProfile,
@@ -206,17 +210,40 @@ export function mergeAchievements(
 }
 
 /**
- * Custom merger for LibraryItem ensuring the one-time XP grant is never forgotten:
- * once XP was awarded on any device, the item keeps xpAwarded=true so it can never pay out twice.
+ * Custom merger for LibraryItem ensuring the one-time XP grant and completion state are preserved:
+ * once XP was awarded on any device, the item keeps xpAwarded=true so it can never pay out twice,
+ * and if completed on one device while untouched (xpAwarded=false) on the other, the completion wins.
  */
 export function mergeLibraryItems(
   existing: LibraryItem,
   incoming: LibraryItem,
   isIncomingNewer: boolean
 ): LibraryItem {
-  const base = isIncomingNewer ? incoming : existing;
+  if (existing.isDeleted || incoming.isDeleted) {
+    const base = isIncomingNewer ? incoming : existing;
+    const xpAwarded = Boolean(existing.xpAwarded || incoming.xpAwarded);
+    const xpEarned = Math.max(existing.xpEarned || 0, incoming.xpEarned || 0);
+    return {
+      ...base,
+      xpAwarded,
+      xpEarned: xpAwarded ? xpEarned : base.xpEarned,
+      updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
+    };
+  }
+
   const xpAwarded = Boolean(existing.xpAwarded || incoming.xpAwarded);
   const xpEarned = Math.max(existing.xpEarned || 0, incoming.xpEarned || 0);
+
+  // If completed on one device and never completed (xpAwarded=false) on the other, completion wins
+  let base: LibraryItem;
+  if (incoming.status === 'done' && existing.status !== 'done' && !existing.xpAwarded) {
+    base = incoming;
+  } else if (existing.status === 'done' && incoming.status !== 'done' && !incoming.xpAwarded) {
+    base = existing;
+  } else {
+    base = isIncomingNewer ? incoming : existing;
+  }
+
   return {
     ...base,
     xpAwarded,
@@ -238,8 +265,11 @@ export function mergeSkills(
   const isExistingFresh = (existing.xp || 0) === 0 && (existing.level || 1) === 1;
   const isIncomingFresh = (incoming.xp || 0) === 0 && (incoming.level || 1) === 1;
 
-  const xp = Math.max(existing.xp || 0, incoming.xp || 0);
-  const level = Math.max(existing.level || 1, incoming.level || 1);
+  const existingXp = existing.xp || 0;
+  const incomingXp = incoming.xp || 0;
+  const xp = Math.max(existingXp, incomingXp);
+  const derivedLevel = calculateSkillLevel(xp);
+  const level = Math.max(existing.level || 1, incoming.level || 1, derivedLevel);
   const streak = Math.max(existing.streak || 0, incoming.streak || 0);
   const totalCompleted = Math.max(existing.totalCompleted || 0, incoming.totalCompleted || 0);
 
@@ -248,17 +278,178 @@ export function mergeSkills(
     base = incoming;
   } else if (!isExistingFresh && isIncomingFresh) {
     base = existing;
+  } else if (incomingXp > existingXp) {
+    base = incoming;
+  } else if (existingXp > incomingXp) {
+    base = existing;
   } else {
     base = isIncomingNewer ? incoming : existing;
   }
 
-  return {
+  let lastCompletedDate = base.lastCompletedDate;
+  if (existing.lastCompletedDate && incoming.lastCompletedDate) {
+    lastCompletedDate =
+      existing.lastCompletedDate >= incoming.lastCompletedDate
+        ? existing.lastCompletedDate
+        : incoming.lastCompletedDate;
+  } else {
+    lastCompletedDate = existing.lastCompletedDate || incoming.lastCompletedDate;
+  }
+
+  const xpToNextLevel = base.xpToNextLevel || level * level * 20;
+
+  return cleanSkillUndefined({
     ...base,
     xp,
     level,
+    xpToNextLevel,
     streak,
+    lastCompletedDate,
     totalCompleted,
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
+  });
+}
+
+function cleanSkillUndefined(s: Skill): Skill {
+  if (s.lastCompletedDate === undefined) {
+    const copy = { ...s };
+    delete copy.lastCompletedDate;
+    return copy;
+  }
+  return s;
+}
+
+/**
+ * Custom merger for Task ensuring:
+ * 1. Tombstone deletions respect LWW and near-tie clock-skew rules.
+ * 2. Seed epoch records always yield to user modifications.
+ * 3. Completed tasks and completed subtasks are preserved across devices even if the lower-progress device has a newer updatedAt.
+ */
+export function mergeTasks(
+  existing: Task,
+  incoming: Task,
+  isIncomingNewer: boolean
+): Task {
+  const existingTime = new Date(existing.updatedAt || 0).getTime();
+  const incomingTime = new Date(incoming.updatedAt || 0).getTime();
+  const timeDiff = existingTime - incomingTime;
+
+  if (existing.isDeleted || incoming.isDeleted) {
+    if (incomingTime === existingTime) {
+      return incoming.isDeleted ? incoming : existing;
+    }
+    if (isIncomingNewer) return incoming;
+    if (incoming.isDeleted && !existing.isDeleted && timeDiff <= 5000) {
+      return incoming;
+    }
+    return existing;
+  }
+
+  const effectiveIncomingNewer =
+    isIncomingNewer || (existing.updatedAt === SEED_EPOCH_ISO && incoming.updatedAt !== SEED_EPOCH_ISO);
+
+  let base = effectiveIncomingNewer ? incoming : existing;
+
+  // Monotonic completion: if completed on incoming and not completed on existing, apply completion
+  const completed = Boolean(existing.completed || incoming.completed);
+  const completedAt = completed
+    ? (incoming.completed && !existing.completed
+        ? (incoming.completedAt || incoming.updatedAt)
+        : existing.completed && !incoming.completed
+          ? (existing.completedAt || existing.updatedAt)
+          : base.completedAt)
+    : undefined;
+
+  // Merge subtask completion progress
+  let subtasks = base.subtasks || [];
+  if (
+    Array.isArray(existing.subtasks) &&
+    existing.subtasks.length > 0 &&
+    Array.isArray(incoming.subtasks) &&
+    incoming.subtasks.length > 0
+  ) {
+    const otherSubtasks = effectiveIncomingNewer ? existing.subtasks : incoming.subtasks;
+    const otherMap = new Map(otherSubtasks.map((s) => [s.id, s]));
+    subtasks = subtasks.map((s) => {
+      const other = otherMap.get(s.id);
+      if (other && other.completed && !s.completed) {
+        return { ...s, completed: true };
+      }
+      return s;
+    });
+  }
+
+  // If recurring task was advanced on incoming, keep the advanced dueDate
+  let dueDate = base.dueDate;
+  if (
+    !completed &&
+    base.recurrence &&
+    base.recurrence !== 'none' &&
+    existing.dueDate &&
+    incoming.dueDate &&
+    incoming.dueDate > existing.dueDate
+  ) {
+    dueDate = incoming.dueDate;
+  }
+
+  const result: Task = {
+    ...base,
+    completed,
+    ...(completedAt !== undefined ? { completedAt } : {}),
+    ...(dueDate !== undefined ? { dueDate } : {}),
+    subtasks,
+    updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
+  };
+  if (completedAt === undefined) {
+    delete result.completedAt;
+  }
+  if (dueDate === undefined) {
+    delete result.dueDate;
+  }
+  return result;
+}
+
+/**
+ * Custom merger for Habit ensuring:
+ * 1. Completed dates from all devices are unioned so habit check-in progress is never lost.
+ * 2. Current and longest streaks are monotonically recalculated.
+ */
+export function mergeHabits(
+  existing: Habit,
+  incoming: Habit,
+  isIncomingNewer: boolean
+): Habit {
+  const existingTime = new Date(existing.updatedAt || 0).getTime();
+  const incomingTime = new Date(incoming.updatedAt || 0).getTime();
+  const timeDiff = existingTime - incomingTime;
+
+  if (existing.isDeleted || incoming.isDeleted) {
+    if (incomingTime === existingTime) {
+      return incoming.isDeleted ? incoming : existing;
+    }
+    if (isIncomingNewer) return incoming;
+    if (incoming.isDeleted && !existing.isDeleted && timeDiff <= 5000) {
+      return incoming;
+    }
+    return existing;
+  }
+
+  const effectiveIncomingNewer =
+    isIncomingNewer || (existing.updatedAt === SEED_EPOCH_ISO && incoming.updatedAt !== SEED_EPOCH_ISO);
+  const base = effectiveIncomingNewer ? incoming : existing;
+
+  const completedDates = Array.from(
+    new Set([...(existing.completedDates || []), ...(incoming.completedDates || [])])
+  ).sort();
+  const { current, longest } = calculateHabitStreak(completedDates);
+  const longestStreak = Math.max(existing.longestStreak || 0, incoming.longestStreak || 0, longest);
+
+  return {
+    ...base,
+    completedDates,
+    streak: current,
+    longestStreak,
+    updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 }
 
@@ -329,7 +520,7 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
       inserted++;
     } else {
       const existingTime = new Date(existing.updatedAt || 0).getTime();
-      const isIncomingNewer = normalizedIncomingTime > existingTime;
+      const isIncomingNewer = normalizedIncomingTime >= existingTime;
 
       if (customMerger) {
         const merged = customMerger(existing, incoming, isIncomingNewer);
@@ -447,7 +638,7 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
       async () => {
         // 1. Merge Tasks
         if (tables.tasks) {
-          stats.tasks = await mergeTableRecords<Task>(db.tasks, tables.tasks, sanitizeTask, mergeOptions);
+          stats.tasks = await mergeTableRecords<Task>(db.tasks, tables.tasks, sanitizeTask, mergeOptions, mergeTasks);
         }
 
         // 2. Merge Projects
@@ -481,7 +672,7 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
 
         // 5. Merge Habits
         if (tables.habits) {
-          stats.habits = await mergeTableRecords<Habit>(db.habits, tables.habits, sanitizeHabit, mergeOptions);
+          stats.habits = await mergeTableRecords<Habit>(db.habits, tables.habits, sanitizeHabit, mergeOptions, mergeHabits);
         }
 
         // 6. Merge Achievements
@@ -512,34 +703,61 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
 
         // Build single-pass map of dates per habitId: O(E)
         const datesByHabitId = new Map<string, Set<string>>();
+        const deletedDatesByHabitId = new Map<string, Set<string>>();
         for (const e of allEvents) {
-          if (!e.isDeleted && e.habitId && e.date) {
-            let set = datesByHabitId.get(e.habitId);
-            if (!set) {
-              set = new Set<string>();
-              datesByHabitId.set(e.habitId, set);
+          if (e.habitId && e.date) {
+            if (e.isDeleted) {
+              let delSet = deletedDatesByHabitId.get(e.habitId);
+              if (!delSet) {
+                delSet = new Set<string>();
+                deletedDatesByHabitId.set(e.habitId, delSet);
+              }
+              delSet.add(e.date);
+            } else {
+              let set = datesByHabitId.get(e.habitId);
+              if (!set) {
+                set = new Set<string>();
+                datesByHabitId.set(e.habitId, set);
+              }
+              set.add(e.date);
             }
-            set.add(e.date);
           }
         }
 
         // Compute streak updates in memory: O(H)
-        const updatedHabits: Habit[] = allHabits.map((habit) => {
+        const habitsToPut: Habit[] = [];
+        for (const habit of allHabits) {
           const dateSet = datesByHabitId.get(habit.id);
-          const dates = dateSet ? Array.from(dateSet).sort() : (habit.completedDates || []);
+          const delSet = deletedDatesByHabitId.get(habit.id);
+          const baseDates = (habit.completedDates || []).filter((d) => !delSet?.has(d));
+          const mergedDateSet = new Set<string>(baseDates);
+          if (dateSet) {
+            dateSet.forEach((d) => mergedDateSet.add(d));
+          }
+          const dates = Array.from(mergedDateSet).sort();
           const { current, longest } = calculateHabitStreak(dates);
+          const nextLongest = Math.max(habit.longestStreak || 0, longest);
 
-          return {
+          const updatedHabit: Habit = {
             ...habit,
             completedDates: dates,
             streak: current,
-            longestStreak: Math.max(habit.longestStreak || 0, longest),
+            longestStreak: nextLongest,
           };
-        });
 
-        // Batch update all habits in one transaction: O(1) DB write
-        if (updatedHabits.length > 0) {
-          await db.habits.bulkPut(updatedHabits);
+          if (JSON.stringify(updatedHabit) !== JSON.stringify(habit)) {
+            habitsToPut.push(updatedHabit);
+          }
+        }
+
+        // Batch update changed habits in one transaction: O(1) DB write
+        if (habitsToPut.length > 0) {
+          await db.habits.bulkPut(habitsToPut);
+          if (!stats.habits) {
+            stats.habits = { inserted: 0, updated: habitsToPut.length, skipped: 0 };
+          } else if (stats.habits.inserted === 0 && stats.habits.updated === 0) {
+            stats.habits.updated += habitsToPut.length;
+          }
         }
       }
     );
