@@ -633,26 +633,33 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           const activeSkills = allSkills.filter((s) => !s.isDeleted);
           const activeHabits = allHabits.filter((h) => !h.isDeleted);
           let currentUser: UserProfile = allUsers[0]
-            ? { ...allUsers[0], id: 'default', achievements: [...(allUsers[0].achievements || [])] }
-            : { ...INITIAL_USER, id: 'default', achievements: [...(INITIAL_USER.achievements || [])] };
+            ? { ...allUsers[0], id: 'user-1', achievements: [...(allUsers[0].achievements || [])] }
+            : { ...INITIAL_USER, id: 'user-1', achievements: [...(INITIAL_USER.achievements || [])] };
 
-          if (allUsers.length > 1) {
+          let hadDuplicateUsers = false;
+          if (allUsers.length > 1 || (allUsers.length === 1 && allUsers[0].id !== 'user-1')) {
+            hadDuplicateUsers = true;
             const achSet = new Set<string>(currentUser.achievements || []);
             let maxTotalXp = currentUser.totalXp || 0;
+            let latestUpdatedAt = currentUser.updatedAt || INITIAL_USER.updatedAt;
             for (const u of allUsers) {
               if ((u.totalXp || 0) > maxTotalXp) {
                 maxTotalXp = u.totalXp || 0;
+              }
+              if (u.updatedAt && u.updatedAt > latestUpdatedAt) {
+                latestUpdatedAt = u.updatedAt;
               }
               (u.achievements || []).forEach((id) => achSet.add(id));
             }
             const { level, rank } = computeUserLevelAndRank(maxTotalXp);
             currentUser = {
               ...currentUser,
-              id: 'default',
+              id: 'user-1',
               totalXp: maxTotalXp,
               ekirumLevel: level,
               ekirumRank: rank,
               achievements: Array.from(achSet),
+              updatedAt: latestUpdatedAt,
             };
           }
           const currentAchs = allAchievements.length > 0 ? allAchievements : INITIAL_ACHIEVEMENTS;
@@ -674,7 +681,14 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             dbWritePromises.push(db.skills.bulkPut(updatedSkills).catch(saveCatch('updating skills')));
           }
 
-          if (newlyUnlocked.length > 0 || earnedXpBonus > 0 || allUsers.length > 1) {
+          if (hadDuplicateUsers) {
+            const staleUserIds = allUsers.map((u) => u.id).filter((id) => id !== 'user-1');
+            if (staleUserIds.length > 0) {
+              dbWritePromises.push(db.userProfile.bulkDelete(staleUserIds).catch(saveCatch('cleaning duplicate user profiles')));
+            }
+          }
+
+          if (newlyUnlocked.length > 0 || earnedXpBonus > 0) {
             const unlockedIds = newlyUnlocked.map((a) => a.id);
             const currentAchIds = new Set(currentUser.achievements || []);
             unlockedIds.forEach((id) => currentAchIds.add(id));
@@ -682,6 +696,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             const { level: newLevel, rank: newRank } = computeUserLevelAndRank(newUserXp);
             currentUser = {
               ...currentUser,
+              id: 'user-1',
               totalXp: newUserXp,
               ekirumLevel: newLevel,
               ekirumRank: newRank,
@@ -689,6 +704,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               updatedAt: new Date().toISOString(),
             };
             dbWritePromises.push(db.userProfile.put(currentUser).catch(saveCatch('updating user profile')));
+          } else if (hadDuplicateUsers) {
+            dbWritePromises.push(db.userProfile.put(currentUser).catch(saveCatch('consolidating user profile')));
           }
 
           if (hasChanges) {

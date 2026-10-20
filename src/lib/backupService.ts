@@ -721,9 +721,37 @@ export async function syncDeviceFiles(
     // so newer snapshots and active device files always have the final word on LWW fields.
     parsedCandidates.sort((a, b) => a.sortTime - b.sortTime);
 
+    // Every Ekirum backup/device file is a complete database export (exportAll) from its originating deviceId.
+    // Find the newest sortTime per deviceId so we do not re-merge obsolete historical daily snapshots
+    // when a newer file from that same deviceId is already present in the folder.
+    const newestSortTimeByDevice = new Map<string, number>();
+    for (const c of parsedCandidates) {
+      const devId = typeof c.data?.deviceId === 'string' && c.data.deviceId ? c.data.deviceId : '';
+      if (devId) {
+        const prevMax = newestSortTimeByDevice.get(devId) ?? -Infinity;
+        if (c.sortTime > prevMax) {
+          newestSortTimeByDevice.set(devId, c.sortTime);
+        }
+      }
+    }
+
     for (const candidate of parsedCandidates) {
       if (!candidate.shouldMerge) continue;
-      const { entry, data, isArtifactToClean, currentMtime, currentSize, currentExportedAt } = candidate;
+      const { entry, data, isArtifactToClean, isSnapshot, currentMtime, currentSize, currentExportedAt, sortTime } = candidate;
+      const devId = typeof data?.deviceId === 'string' && data.deviceId ? data.deviceId : '';
+      const newestForDevice = devId ? (newestSortTimeByDevice.get(devId) ?? sortTime) : sortTime;
+
+      // Skip older historical snapshots when a strictly newer full export from the same deviceId exists in the folder
+      if (isSnapshot && !isArtifactToClean && devId && sortTime < newestForDevice) {
+        syncMtimes[entry.name] = {
+          mtime: currentMtime,
+          size: currentSize,
+          exportedAt: currentExportedAt,
+        };
+        mtimesChanged = true;
+        continue;
+      }
+
       try {
         const mergeRes = await importAndMerge(data);
         if (mergeRes.success) {

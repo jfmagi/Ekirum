@@ -320,6 +320,31 @@ function cleanSkillUndefined(s: Skill): Skill {
 }
 
 /**
+ * Key-order-independent canonical JSON serialization for comparing records.
+ * Prevents false-positive "changes applied" counts when object keys are in a different order
+ * or when optional fields are undefined.
+ */
+function toCanonicalValue(val: any): any {
+  if (Array.isArray(val)) {
+    return val.map(toCanonicalValue);
+  }
+  if (val !== null && typeof val === 'object') {
+    const sorted: Record<string, any> = {};
+    for (const k of Object.keys(val).sort()) {
+      if (val[k] !== undefined) {
+        sorted[k] = toCanonicalValue(val[k]);
+      }
+    }
+    return sorted;
+  }
+  return val;
+}
+
+export function isRecordEqual(a: any, b: any): boolean {
+  return JSON.stringify(toCanonicalValue(a)) === JSON.stringify(toCanonicalValue(b));
+}
+
+/**
  * Custom merger for Task ensuring:
  * 1. Tombstone deletions respect LWW and near-tie clock-skew rules.
  * 2. Seed epoch records always yield to user modifications.
@@ -438,16 +463,18 @@ export function mergeHabits(
     isIncomingNewer || (existing.updatedAt === SEED_EPOCH_ISO && incoming.updatedAt !== SEED_EPOCH_ISO);
   const base = effectiveIncomingNewer ? incoming : existing;
 
+  const existingDates = Array.from(new Set(existing.completedDates || [])).sort();
   const completedDates = Array.from(
-    new Set([...(existing.completedDates || []), ...(incoming.completedDates || [])])
+    new Set([...existingDates, ...(incoming.completedDates || [])])
   ).sort();
+  const datesChanged = JSON.stringify(completedDates) !== JSON.stringify(existingDates);
   const { current, longest } = calculateHabitStreak(completedDates);
   const longestStreak = Math.max(existing.longestStreak || 0, incoming.longestStreak || 0, longest);
 
   return {
     ...base,
     completedDates,
-    streak: current,
+    streak: datesChanged || effectiveIncomingNewer ? current : existing.streak,
     longestStreak,
     updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
@@ -520,26 +547,31 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
       inserted++;
     } else {
       const existingTime = new Date(existing.updatedAt || 0).getTime();
-      const isIncomingNewer = normalizedIncomingTime >= existingTime;
+      const isStrictlyNewer = normalizedIncomingTime > existingTime;
+      const isIncomingNewerOrEqual = normalizedIncomingTime >= existingTime;
 
       if (customMerger) {
-        const merged = customMerger(existing, incoming, isIncomingNewer);
-        if (JSON.stringify(merged) !== JSON.stringify(existing)) {
+        const merged = customMerger(existing, incoming, isIncomingNewerOrEqual);
+        if (!isRecordEqual(merged, existing)) {
           toPut.push(merged);
           updated++;
         } else {
           skipped++;
         }
-      } else if (isIncomingNewer) {
-        // Incoming is strictly newer: update
-        toPut.push(incoming);
-        updated++;
+      } else if (isStrictlyNewer) {
+        // Incoming is strictly newer: update only if content or timestamp differs
+        if (!isRecordEqual(incoming, existing)) {
+          toPut.push(incoming);
+          updated++;
+        } else {
+          skipped++;
+        }
       } else if (normalizedIncomingTime === existingTime) {
         // Tie-breaker: tombstone deletion takes precedence over active record
         if (incoming.isDeleted && !existing.isDeleted) {
           toPut.push(incoming);
           updated++;
-        } else if (JSON.stringify(incoming) !== JSON.stringify(existing)) {
+        } else if (!isRecordEqual(incoming, existing)) {
           // If timestamps are identical but contents differ, incoming update applies
           toPut.push(incoming);
           updated++;
@@ -556,7 +588,7 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
           } else if ((incoming as any).completed && !(existing as any).completed) {
             toPut.push(incoming);
             updated++;
-          } else if (existing.updatedAt === SEED_EPOCH_ISO && JSON.stringify(incoming) !== JSON.stringify(existing)) {
+          } else if (existing.updatedAt === SEED_EPOCH_ISO && !isRecordEqual(incoming, existing)) {
             toPut.push(incoming);
             updated++;
           } else {
@@ -675,15 +707,76 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
           stats.habits = await mergeTableRecords<Habit>(db.habits, tables.habits, sanitizeHabit, mergeOptions, mergeHabits);
         }
 
-        // 6. Merge Achievements
-        if (tables.achievements) {
-          stats.achievements = await mergeTableRecords<Achievement>(db.achievements, tables.achievements, sanitizeAchievement, mergeOptions, mergeAchievements);
+        // 6. Merge Achievements (skipping un-unlocked project milestones with 0 progress from legacy 100-tier exports)
+        if (tables.achievements && Array.isArray(tables.achievements)) {
+          const relevantAchievements = tables.achievements.filter((a: any) => {
+            if (!a || typeof a.id !== 'string') return false;
+            if (a.id.startsWith('ach-project-') && !a.unlockedAt && !a.unlocked && (!a.progress || a.progress <= 0)) {
+              const targetStr = a.id.slice(a.id.lastIndexOf('-') + 1);
+              const target = parseInt(targetStr, 10);
+              if (!isNaN(target) && target > 10) {
+                return false;
+              }
+            }
+            return true;
+          });
+          stats.achievements = await mergeTableRecords<Achievement>(
+            db.achievements,
+            relevantAchievements,
+            sanitizeAchievement,
+            mergeOptions,
+            mergeAchievements
+          );
         }
 
-        // 7. Merge User Profile
+        // 7. Merge User Profile (normalizing legacy 'default' id to canonical 'user-1')
         if (tables.userProfile) {
-          const profiles = Array.isArray(tables.userProfile) ? tables.userProfile : [tables.userProfile];
-          stats.userProfile = await mergeTableRecords<UserProfile>(db.userProfile, profiles, sanitizeUserProfile, mergeOptions, mergeUserProfiles);
+          const rawProfiles = Array.isArray(tables.userProfile) ? tables.userProfile : [tables.userProfile];
+          const sanitizedIncoming: UserProfile[] = [];
+          for (const raw of rawProfiles) {
+            const clean = sanitizeUserProfile(raw);
+            if (clean) {
+              sanitizedIncoming.push({
+                ...clean,
+                id: clean.id === 'default' ? 'user-1' : clean.id,
+              });
+            }
+          }
+          // Deduplicate incoming profiles by id (merging any 'default' and 'user-1' that now both have id 'user-1')
+          const dedupedIncomingMap = new Map<string, UserProfile>();
+          for (const prof of sanitizedIncoming) {
+            const prev = dedupedIncomingMap.get(prof.id);
+            if (!prev) {
+              dedupedIncomingMap.set(prof.id, prof);
+            } else {
+              const isNewer = new Date(prof.updatedAt || 0).getTime() >= new Date(prev.updatedAt || 0).getTime();
+              dedupedIncomingMap.set(prof.id, mergeUserProfiles(prev, prof, isNewer));
+            }
+          }
+
+          // If db.userProfile has a legacy 'default' row, fold it into 'user-1' and remove 'default'
+          const defaultRow = await db.userProfile.get('default');
+          if (defaultRow) {
+            const existingUser1 = await db.userProfile.get('user-1');
+            const normalizedDefault: UserProfile = { ...defaultRow, id: 'user-1' };
+            if (existingUser1) {
+              const isNewer =
+                new Date(normalizedDefault.updatedAt || 0).getTime() >=
+                new Date(existingUser1.updatedAt || 0).getTime();
+              await db.userProfile.put(mergeUserProfiles(existingUser1, normalizedDefault, isNewer));
+            } else {
+              await db.userProfile.put(normalizedDefault);
+            }
+            await db.userProfile.delete('default');
+          }
+
+          stats.userProfile = await mergeTableRecords<UserProfile>(
+            db.userProfile,
+            Array.from(dedupedIncomingMap.values()),
+            sanitizeUserProfile,
+            mergeOptions,
+            mergeUserProfiles
+          );
         }
 
         // 7b. Merge Library items
@@ -735,17 +828,18 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
             dateSet.forEach((d) => mergedDateSet.add(d));
           }
           const dates = Array.from(mergedDateSet).sort();
+          const existingDates = Array.from(new Set(habit.completedDates || [])).sort();
+          const datesChanged = JSON.stringify(dates) !== JSON.stringify(existingDates);
           const { current, longest } = calculateHabitStreak(dates);
           const nextLongest = Math.max(habit.longestStreak || 0, longest);
 
-          const updatedHabit: Habit = {
-            ...habit,
-            completedDates: dates,
-            streak: current,
-            longestStreak: nextLongest,
-          };
-
-          if (JSON.stringify(updatedHabit) !== JSON.stringify(habit)) {
+          if (datesChanged || nextLongest > (habit.longestStreak || 0)) {
+            const updatedHabit: Habit = {
+              ...habit,
+              completedDates: dates,
+              streak: current,
+              longestStreak: nextLongest,
+            };
             habitsToPut.push(updatedHabit);
           }
         }
@@ -782,3 +876,4 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
     };
   }
 }
+
