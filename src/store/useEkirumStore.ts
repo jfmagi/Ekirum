@@ -346,7 +346,8 @@ let initStoragePromise: Promise<void> | null = null;
 export function advanceRecurringTask(
   task: Task,
   todayStr: string,
-  nowIso: string
+  nowIso: string,
+  earnedXp?: number
 ): { completedArchiveTask: Task; activeRecurringTask: Task } {
   const isMonthly = task.recurrence === 'monthly';
   const parsedDay = task.dueDate ? Number(task.dueDate.split('-')[2]) : undefined;
@@ -369,6 +370,7 @@ export function advanceRecurringTask(
     id: archiveId,
     completed: true,
     completedAt: nowIso,
+    xpAwarded: earnedXp,
     recurrence: 'none',
     recurrenceAnchorDay: undefined,
     updatedAt: nowIso,
@@ -1022,7 +1024,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           let completedTask: Task | null = null;
 
           if (isRecurring) {
-            const recurringRes = advanceRecurringTask(task, todayStr, now);
+            const recurringRes = advanceRecurringTask(task, todayStr, now, earnedXp);
             completedArchiveTask = recurringRes.completedArchiveTask;
             activeRecurringTask = recurringRes.activeRecurringTask;
           } else {
@@ -1030,6 +1032,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               ...task,
               completed: true,
               completedAt: now,
+              xpAwarded: earnedXp,
               updatedAt: now,
             };
           }

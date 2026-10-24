@@ -44,6 +44,7 @@ export function sanitizeTask(raw: any): Task | null {
     recurrence: ['none', 'daily', 'weekdays', 'weekly', 'monthly'].includes(raw.recurrence) ? raw.recurrence : 'none',
     completed: Boolean(raw.completed),
     completedAt: typeof raw.completedAt === 'string' ? raw.completedAt : undefined,
+    xpAwarded: typeof raw.xpAwarded === 'number' && !isNaN(raw.xpAwarded) && raw.xpAwarded >= 0 ? Math.floor(raw.xpAwarded) : undefined,
     subtasks: Array.isArray(raw.subtasks)
       ? raw.subtasks
           .filter((s: any) => s && typeof s === 'object' && typeof s.id === 'string' && typeof s.title === 'string')

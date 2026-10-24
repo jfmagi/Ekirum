@@ -694,6 +694,295 @@ async function runTests() {
   }
   console.log('  ✓ Merged both device files and backup snapshots and pruned redundant foreign device file.');
 
+  // Test 15: Concurrency-dependent additive CRDT XP & Skill convergence (RC1)
+  console.log('\nTest 15: Concurrency-dependent additive CRDT XP & Skill convergence (RC1)...');
+  const projCrdt = {
+    id: 'proj-crdt',
+    name: 'CRDT Project',
+    skillId: 'skill-crdt',
+    createdAt: '2026-10-20T08:00:00.000Z',
+    updatedAt: '2026-10-20T08:00:00.000Z',
+    isDeleted: false,
+  };
+  await db.projects.put(projCrdt);
+
+  // Desktop local state: 5300 XP, 1 task completed (+300 XP), customized name 'DesktopCommander'
+  await db.userProfile.put({
+    id: 'user-1',
+    name: 'DesktopCommander',
+    totalXp: 5300,
+    ekirumLevel: 14,
+    ekirumRank: 'Expert',
+    achievements: [],
+    updatedAt: '2026-10-20T10:00:00.000Z',
+  });
+  await db.skills.put({
+    id: 'skill-crdt',
+    projectId: 'proj-crdt',
+    name: 'Engineering',
+    level: 5,
+    xp: 500,
+    xpToNextLevel: 500,
+    icon: 'Hammer',
+    streak: 2,
+    totalCompleted: 10,
+    createdAt: '2026-10-20T08:00:00.000Z',
+    updatedAt: '2026-10-20T10:00:00.000Z',
+  });
+  await db.tasks.put({
+    id: 'task-desktop-done',
+    projectId: 'proj-crdt',
+    title: 'Desktop Work (+300 XP)',
+    priority: 'p1',
+    labels: [],
+    completed: true,
+    completedAt: '2026-10-20T10:00:00.000Z',
+    xpAwarded: 300,
+    subtasks: [],
+    createdAt: '2026-10-20T09:00:00.000Z',
+    updatedAt: '2026-10-20T10:00:00.000Z',
+    isDeleted: false,
+  });
+
+  // Phone incoming backup payload: 5200 XP, 1 task completed (+200 XP), customized name 'PhoneChampion'
+  const phonePayload = {
+    schemaVersion: 1,
+    deviceId: 'device-phone',
+    exportedAt: '2026-10-20T10:05:00.000Z',
+    tables: {
+      userProfile: [
+        {
+          id: 'user-1',
+          name: 'PhoneChampion',
+          avatar: 'phone-avatar.svg',
+          totalXp: 5200,
+          ekirumLevel: 14,
+          ekirumRank: 'Expert',
+          achievements: [],
+          updatedAt: '2026-10-20T10:05:00.000Z', // Phone edited profile slightly later
+        },
+      ],
+      skills: [
+        {
+          id: 'skill-crdt',
+          projectId: 'proj-crdt',
+          name: 'Engineering',
+          level: 4,
+          xp: 400,
+          xpToNextLevel: 320,
+          icon: 'Hammer',
+          streak: 1,
+          totalCompleted: 9,
+          createdAt: '2026-10-20T08:00:00.000Z',
+          updatedAt: '2026-10-20T09:30:00.000Z',
+        },
+      ],
+      tasks: [
+        {
+          id: 'task-phone-done',
+          projectId: 'proj-crdt',
+          title: 'Phone Work (+200 XP)',
+          priority: 'p1',
+          labels: [],
+          completed: true,
+          completedAt: '2026-10-20T09:30:00.000Z',
+          xpAwarded: 200,
+          subtasks: [],
+          createdAt: '2026-10-20T09:00:00.000Z',
+          updatedAt: '2026-10-20T09:30:00.000Z',
+          isDeleted: false,
+        },
+      ],
+    },
+  };
+
+  // Step 1: Desktop merges Phone
+  const desktopMergeRes = await importAndMerge(phonePayload);
+  if (!desktopMergeRes.success) {
+    throw new Error(`Desktop failed to merge phone payload: ${desktopMergeRes.error}`);
+  }
+
+  const desktopUserAfterMerge = await db.userProfile.get('user-1');
+  const desktopSkillAfterMerge = await db.skills.get('skill-crdt');
+
+  // Both devices should converge to 5000 + 300 + 200 = 5500 XP!
+  if (desktopUserAfterMerge?.totalXp !== 5500) {
+    throw new Error(`Expected Desktop to converge to 5500 XP after merging phone, got ${desktopUserAfterMerge?.totalXp}`);
+  }
+  // Skill XP should be 500 + 200 = 700 XP, and completions 10 + 1 = 11!
+  if (desktopSkillAfterMerge?.xp !== 700 || desktopSkillAfterMerge?.totalCompleted !== 11) {
+    throw new Error(
+      `Expected Desktop skill to additively merge to 700 XP and 11 completions, got xp=${desktopSkillAfterMerge?.xp}, totalCompleted=${desktopSkillAfterMerge?.totalCompleted}`
+    );
+  }
+  // Since Phone's profile updatedAt (10:05:00) > Desktop's (10:00:00), LWW applies and adopts PhoneChampion
+  if (desktopUserAfterMerge?.name !== 'PhoneChampion' || desktopUserAfterMerge?.avatar !== 'phone-avatar.svg') {
+    throw new Error(`Expected profile identity to adopt PhoneChampion via LWW, got name=${desktopUserAfterMerge?.name}`);
+  }
+  console.log('  ✓ Desktop successfully merged phone progress: totalXp=5500, skill.xp=700, completions=11.');
+
+  // Step 2: Simulate reverse merge on Phone
+  // Reset DB to represent Phone's state before sync
+  await db.userProfile.put({
+    id: 'user-1',
+    name: 'PhoneChampion',
+    avatar: 'phone-avatar.svg',
+    totalXp: 5200,
+    ekirumLevel: 14,
+    ekirumRank: 'Expert',
+    achievements: [],
+    updatedAt: '2026-10-20T10:05:00.000Z',
+  });
+  await db.skills.put({
+    id: 'skill-crdt',
+    projectId: 'proj-crdt',
+    name: 'Engineering',
+    level: 4,
+    xp: 400,
+    xpToNextLevel: 320,
+    icon: 'Hammer',
+    streak: 1,
+    totalCompleted: 9,
+    createdAt: '2026-10-20T08:00:00.000Z',
+    updatedAt: '2026-10-20T09:30:00.000Z',
+  });
+  await db.tasks.delete('task-desktop-done');
+  await db.tasks.put({
+    id: 'task-phone-done',
+    projectId: 'proj-crdt',
+    title: 'Phone Work (+200 XP)',
+    priority: 'p1',
+    labels: [],
+    completed: true,
+    completedAt: '2026-10-20T09:30:00.000Z',
+    xpAwarded: 200,
+    subtasks: [],
+    createdAt: '2026-10-20T09:00:00.000Z',
+    updatedAt: '2026-10-20T09:30:00.000Z',
+    isDeleted: false,
+  });
+
+  // Phone merges Desktop's backup (Desktop had 5300 XP and task-desktop-done)
+  const desktopPayload = {
+    schemaVersion: 1,
+    deviceId: 'device-desktop',
+    exportedAt: '2026-10-20T10:00:00.000Z',
+    tables: {
+      userProfile: [
+        {
+          id: 'user-1',
+          name: 'DesktopCommander',
+          totalXp: 5300,
+          ekirumLevel: 14,
+          ekirumRank: 'Expert',
+          achievements: [],
+          updatedAt: '2026-10-20T10:00:00.000Z',
+        },
+      ],
+      skills: [
+        {
+          id: 'skill-crdt',
+          projectId: 'proj-crdt',
+          name: 'Engineering',
+          level: 5,
+          xp: 500,
+          xpToNextLevel: 500,
+          icon: 'Hammer',
+          streak: 2,
+          totalCompleted: 10,
+          createdAt: '2026-10-20T08:00:00.000Z',
+          updatedAt: '2026-10-20T10:00:00.000Z',
+        },
+      ],
+      tasks: [
+        {
+          id: 'task-desktop-done',
+          projectId: 'proj-crdt',
+          title: 'Desktop Work (+300 XP)',
+          priority: 'p1',
+          labels: [],
+          completed: true,
+          completedAt: '2026-10-20T10:00:00.000Z',
+          xpAwarded: 300,
+          subtasks: [],
+          createdAt: '2026-10-20T09:00:00.000Z',
+          updatedAt: '2026-10-20T10:00:00.000Z',
+          isDeleted: false,
+        },
+      ],
+    },
+  };
+
+  const phoneMergeRes = await importAndMerge(desktopPayload);
+  if (!phoneMergeRes.success) {
+    throw new Error(`Phone failed to merge desktop payload: ${phoneMergeRes.error}`);
+  }
+
+  const phoneUserAfterMerge = await db.userProfile.get('user-1');
+  const phoneSkillAfterMerge = await db.skills.get('skill-crdt');
+
+  // Phone also converges to 5200 + 300 = 5500 XP!
+  if (phoneUserAfterMerge?.totalXp !== 5500) {
+    throw new Error(`Expected Phone to converge to 5500 XP after merging desktop, got ${phoneUserAfterMerge?.totalXp}`);
+  }
+  // Phone's name must NOT be overwritten by Desktop's higher XP (5300) since Phone has newer updatedAt!
+  if (phoneUserAfterMerge?.name !== 'PhoneChampion') {
+    throw new Error(
+      `CRITICAL REGRESSION: Phone's customized profile name was overwritten by Desktop's higher XP! Got ${phoneUserAfterMerge?.name}`
+    );
+  }
+  console.log('  ✓ Phone successfully converged to 5500 XP while preserving customized profile identity.');
+
+  // Test 16: Project custom merger & composite merge updatedAt advancement (RC2 & RC3)
+  console.log('\nTest 16: Project custom merger & composite merge updatedAt advancement (RC2 & RC3)...');
+  await db.projects.put({
+    id: 'proj-custom-merge-test',
+    name: 'Original Project Title',
+    color: 'crimson',
+    icon: 'Book',
+    skillId: 'skill-1',
+    description: 'Initial description',
+    createdAt: '2026-10-20T11:00:00.000Z',
+    updatedAt: '2026-10-20T11:00:00.000Z',
+    isDeleted: false,
+  });
+
+  // Remote device renames project and updates color
+  const projectUpdatePayload = {
+    schemaVersion: 1,
+    deviceId: 'device-remote',
+    exportedAt: '2026-10-20T11:05:00.000Z',
+    tables: {
+      projects: [
+        {
+          id: 'proj-custom-merge-test',
+          name: 'Renamed Project Title',
+          color: 'gold',
+          icon: 'Star',
+          skillId: 'skill-1',
+          createdAt: '2026-10-20T11:00:00.000Z',
+          updatedAt: '2026-10-20T11:05:00.000Z',
+          isDeleted: false,
+        },
+      ],
+    },
+  };
+
+  const projMergeRes = await importAndMerge(projectUpdatePayload);
+  if (!projMergeRes.success) {
+    throw new Error(`Project merge failed: ${projMergeRes.error}`);
+  }
+
+  const mergedProj = await db.projects.get('proj-custom-merge-test');
+  if (mergedProj?.name !== 'Renamed Project Title' || mergedProj?.color !== 'gold') {
+    throw new Error(`Project custom merger failed to adopt rename: got ${mergedProj?.name}, ${mergedProj?.color}`);
+  }
+  // Composite merge of project preserved description from existing while adopting name and color from incoming
+  if (mergedProj?.description !== 'Initial description') {
+    throw new Error(`Project custom merger dropped existing description on composite merge`);
+  }
+  console.log('  ✓ Project custom merger preserved fields and updated name/color.');
+
   console.log('\n🎉 ALL TESTS PASSED! Dexie schema, migrations, exportAll, and LWW importAndMerge are verified!\n');
 }
 

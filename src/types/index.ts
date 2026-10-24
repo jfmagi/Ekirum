@@ -29,6 +29,7 @@ export interface Task extends BaseEntity {
   labels: string[];
   completed: boolean;
   completedAt?: string;
+  xpAwarded?: number;
   subtasks: Subtask[];
   section?: string; // For board view columns: e.g. "To Do", "In Progress", "Done"
   order?: number;
@@ -142,6 +143,7 @@ export interface BackupFile {
   schemaVersion: number;
   exportedAt: string;
   deviceId: string;
+  deviceClockOffsetMs?: number;
   tables: BackupTables;
 }
 

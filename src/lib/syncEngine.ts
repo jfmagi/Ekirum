@@ -66,7 +66,10 @@ export async function compactTombstones(cutoffDays = 60): Promise<number> {
 /**
  * Export all tables from IndexedDB into a versioned JSON backup object.
  */
-export async function exportAll(customDeviceId?: string): Promise<BackupFile> {
+export async function exportAll(
+  customDeviceId?: string,
+  options?: { deviceClockOffsetMs?: number }
+): Promise<BackupFile> {
   const deviceId = customDeviceId || (await getOrCreateDeviceId());
 
   const [
@@ -93,6 +96,7 @@ export async function exportAll(customDeviceId?: string): Promise<BackupFile> {
     schemaVersion: 1,
     exportedAt: new Date().toISOString(),
     deviceId,
+    deviceClockOffsetMs: options?.deviceClockOffsetMs ?? 0,
     tables: {
       tasks,
       projects,
@@ -110,18 +114,23 @@ export async function exportAll(customDeviceId?: string): Promise<BackupFile> {
 
 /**
  * Custom merger for UserProfile ensuring:
- * 1. Monotonic progress: total XP and Level NEVER decrease upon sync.
+ * 1. Progress monotonicity & CRDT additivity: newly completed tasks/habits/library items
+ *    from both devices are credited additively without destroying concurrent progress.
  * 2. Unlocked achievements union: all achievements unlocked on any device stay unlocked.
- * 3. Identity protection: uncustomized default placeholders ('Ekirum' / 0 XP) never overwrite customized characters.
+ * 3. Identity protection: uncustomized default placeholders ('Ekirum' / 0 XP) never overwrite customized characters,
+ *    and user customizations (name, avatar, theme) are determined by LWW rather than being overwritten by higher XP.
  */
 export function mergeUserProfiles(
   existing: UserProfile,
   incoming: UserProfile,
-  isIncomingNewer: boolean
+  isIncomingNewer: boolean,
+  incomingNewXpDelta: number = 0
 ): UserProfile {
   const existingXp = existing.totalXp || 0;
   const incomingXp = incoming.totalXp || 0;
-  const totalXp = Math.max(existingXp, incomingXp);
+  // Additive CRDT merge: newly completed tasks/habits/library from peer are added to existing XP,
+  // while ensuring monotonicity against incoming.totalXp (handles clean pull from higher-progress peer)
+  const totalXp = Math.max(existingXp + incomingNewXpDelta, incomingXp);
 
   const { level: derivedLevel, rank: derivedRank } = computeUserLevelAndRank(totalXp);
   const ekirumLevel = Math.max(existing.ekirumLevel || 1, incoming.ekirumLevel || 1, derivedLevel);
@@ -136,14 +145,13 @@ export function mergeUserProfiles(
   const isIncomingDefault =
     incoming.name === 'Ekirum' && incomingXp === 0 && !incoming.onboardingCompleted && !incoming.avatar;
 
+  // Selection of user customizations: uncustomized default yields to customized;
+  // otherwise LWW determines identity fields (name, avatar, theme).
+  // NEVER use incomingXp > existingXp to overwrite user profile identity.
   let chosenProfile: UserProfile;
   if (isExistingDefault && !isIncomingDefault) {
     chosenProfile = incoming;
   } else if (!isExistingDefault && isIncomingDefault) {
-    chosenProfile = existing;
-  } else if (incomingXp > existingXp) {
-    chosenProfile = incoming;
-  } else if (existingXp > incomingXp) {
     chosenProfile = existing;
   } else {
     chosenProfile = isIncomingNewer ? incoming : existing;
@@ -156,7 +164,7 @@ export function mergeUserProfiles(
     dailyXpEarned = Math.max(existing.dailyXpEarned || 0, incoming.dailyXpEarned || 0);
   }
 
-  return {
+  const result: UserProfile = {
     ...chosenProfile,
     id: existing.id || incoming.id || 'user-1',
     totalXp,
@@ -168,6 +176,14 @@ export function mergeUserProfiles(
     onboardingCompleted: Boolean(existing.onboardingCompleted || incoming.onboardingCompleted),
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
+
+  // If merged state took fields from both sides (differs from both existing and incoming),
+  // advance updatedAt to now so peer devices immediately recognize and adopt the composite state.
+  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+    result.updatedAt = new Date().toISOString();
+  }
+
+  return result;
 }
 
 /**
@@ -199,7 +215,7 @@ export function mergeAchievements(
   }
 
   const base = isIncomingNewer ? incoming : existing;
-  return {
+  const result: Achievement = {
     ...base,
     projectId: existing.projectId || incoming.projectId,
     unlockedAt,
@@ -207,6 +223,12 @@ export function mergeAchievements(
     xpClaimed,
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
+
+  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+    result.updatedAt = new Date().toISOString();
+  }
+
+  return result;
 }
 
 /**
@@ -223,12 +245,16 @@ export function mergeLibraryItems(
     const base = isIncomingNewer ? incoming : existing;
     const xpAwarded = Boolean(existing.xpAwarded || incoming.xpAwarded);
     const xpEarned = Math.max(existing.xpEarned || 0, incoming.xpEarned || 0);
-    return {
+    const result: LibraryItem = {
       ...base,
       xpAwarded,
       xpEarned: xpAwarded ? xpEarned : base.xpEarned,
       updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
     };
+    if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+      result.updatedAt = new Date().toISOString();
+    }
+    return result;
   }
 
   const xpAwarded = Boolean(existing.xpAwarded || incoming.xpAwarded);
@@ -244,43 +270,50 @@ export function mergeLibraryItems(
     base = isIncomingNewer ? incoming : existing;
   }
 
-  return {
+  const result: LibraryItem = {
     ...base,
     xpAwarded,
     xpEarned: xpAwarded ? xpEarned : base.xpEarned,
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
+
+  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+    result.updatedAt = new Date().toISOString();
+  }
+
+  return result;
 }
 
 /**
  * Custom merger for Skill ensuring:
- * 1. Progress monotonicity: XP, level, and streaks never degrade.
+ * 1. Progress monotonicity & additivity: XP, level, and completions from newly arriving tasks
+ *    are credited additively without destroying concurrent progress.
  * 2. Uncustomized placeholders don't overwrite customized skills.
  */
 export function mergeSkills(
   existing: Skill,
   incoming: Skill,
-  isIncomingNewer: boolean
+  isIncomingNewer: boolean,
+  options?: { deltaXp?: number; deltaCompletions?: number }
 ): Skill {
   const isExistingFresh = (existing.xp || 0) === 0 && (existing.level || 1) === 1;
   const isIncomingFresh = (incoming.xp || 0) === 0 && (incoming.level || 1) === 1;
 
   const existingXp = existing.xp || 0;
   const incomingXp = incoming.xp || 0;
-  const xp = Math.max(existingXp, incomingXp);
+  const deltaXp = options?.deltaXp || 0;
+  const deltaCompletions = options?.deltaCompletions || 0;
+
+  const xp = Math.max(existingXp + deltaXp, incomingXp);
   const derivedLevel = calculateSkillLevel(xp);
   const level = Math.max(existing.level || 1, incoming.level || 1, derivedLevel);
   const streak = Math.max(existing.streak || 0, incoming.streak || 0);
-  const totalCompleted = Math.max(existing.totalCompleted || 0, incoming.totalCompleted || 0);
+  const totalCompleted = Math.max((existing.totalCompleted || 0) + deltaCompletions, incoming.totalCompleted || 0);
 
   let base: Skill;
   if (isExistingFresh && !isIncomingFresh) {
     base = incoming;
   } else if (!isExistingFresh && isIncomingFresh) {
-    base = existing;
-  } else if (incomingXp > existingXp) {
-    base = incoming;
-  } else if (existingXp > incomingXp) {
     base = existing;
   } else {
     base = isIncomingNewer ? incoming : existing;
@@ -296,9 +329,9 @@ export function mergeSkills(
     lastCompletedDate = existing.lastCompletedDate || incoming.lastCompletedDate;
   }
 
-  const xpToNextLevel = base.xpToNextLevel || level * level * 20;
+  const xpToNextLevel = level * level * 20;
 
-  return cleanSkillUndefined({
+  const result = cleanSkillUndefined({
     ...base,
     xp,
     level,
@@ -308,6 +341,12 @@ export function mergeSkills(
     totalCompleted,
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   });
+
+  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+    result.updatedAt = new Date().toISOString();
+  }
+
+  return result;
 }
 
 function cleanSkillUndefined(s: Skill): Skill {
@@ -364,7 +403,7 @@ export function mergeTasks(
       return incoming.isDeleted ? incoming : existing;
     }
     if (isIncomingNewer) return incoming;
-    if (incoming.isDeleted && !existing.isDeleted && timeDiff <= 5000) {
+    if (incoming.isDeleted && !existing.isDeleted && timeDiff <= 30000) {
       return incoming;
     }
     return existing;
@@ -383,6 +422,14 @@ export function mergeTasks(
         : existing.completed && !incoming.completed
           ? (existing.completedAt || existing.updatedAt)
           : base.completedAt)
+    : undefined;
+
+  const xpAwarded = completed
+    ? (incoming.completed && typeof incoming.xpAwarded === 'number'
+        ? incoming.xpAwarded
+        : existing.completed && typeof existing.xpAwarded === 'number'
+          ? existing.xpAwarded
+          : incoming.xpAwarded ?? existing.xpAwarded)
     : undefined;
 
   // Merge subtask completion progress
@@ -421,6 +468,7 @@ export function mergeTasks(
     ...base,
     completed,
     ...(completedAt !== undefined ? { completedAt } : {}),
+    ...(xpAwarded !== undefined ? { xpAwarded } : {}),
     ...(dueDate !== undefined ? { dueDate } : {}),
     subtasks,
     updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
@@ -428,9 +476,65 @@ export function mergeTasks(
   if (completedAt === undefined) {
     delete result.completedAt;
   }
+  if (xpAwarded === undefined) {
+    delete result.xpAwarded;
+  }
   if (dueDate === undefined) {
     delete result.dueDate;
   }
+
+  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+    result.updatedAt = new Date().toISOString();
+  }
+
+  return result;
+}
+
+/**
+ * Custom merger for Project ensuring:
+ * 1. Tombstone deletions respect LWW and near-tie clock-skew rules.
+ * 2. Seed epoch records always yield to user modifications.
+ * 3. Project identity and edits (rename, color, icon, description) made on either device are preserved.
+ * 4. Composite states advance updatedAt to now.
+ */
+export function mergeProjects(
+  existing: Project,
+  incoming: Project,
+  isIncomingNewer: boolean
+): Project {
+  const existingTime = new Date(existing.updatedAt || 0).getTime();
+  const incomingTime = new Date(incoming.updatedAt || 0).getTime();
+  const timeDiff = existingTime - incomingTime;
+
+  if (existing.isDeleted || incoming.isDeleted) {
+    if (incomingTime === existingTime) {
+      return incoming.isDeleted ? incoming : existing;
+    }
+    if (isIncomingNewer) return incoming;
+    if (incoming.isDeleted && !existing.isDeleted && timeDiff <= 30000) {
+      return incoming;
+    }
+    return existing;
+  }
+
+  const effectiveIncomingNewer =
+    isIncomingNewer || (existing.updatedAt === SEED_EPOCH_ISO && incoming.updatedAt !== SEED_EPOCH_ISO);
+  const base = effectiveIncomingNewer ? incoming : existing;
+  const other = effectiveIncomingNewer ? existing : incoming;
+
+  const result: Project = {
+    ...base,
+    skillId: base.skillId || other.skillId,
+    color: base.color || other.color,
+    icon: base.icon || other.icon,
+    description: base.description !== undefined ? base.description : other.description,
+    updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
+  };
+
+  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+    result.updatedAt = new Date().toISOString();
+  }
+
   return result;
 }
 
@@ -453,7 +557,7 @@ export function mergeHabits(
       return incoming.isDeleted ? incoming : existing;
     }
     if (isIncomingNewer) return incoming;
-    if (incoming.isDeleted && !existing.isDeleted && timeDiff <= 5000) {
+    if (incoming.isDeleted && !existing.isDeleted && timeDiff <= 30000) {
       return incoming;
     }
     return existing;
@@ -471,13 +575,19 @@ export function mergeHabits(
   const { current, longest } = calculateHabitStreak(completedDates);
   const longestStreak = Math.max(existing.longestStreak || 0, incoming.longestStreak || 0, longest);
 
-  return {
+  const result: Habit = {
     ...base,
     completedDates,
     streak: datesChanged || effectiveIncomingNewer ? current : existing.streak,
     longestStreak,
     updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
+
+  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+    result.updatedAt = new Date().toISOString();
+  }
+
+  return result;
 }
 
 /**
@@ -537,6 +647,7 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
     let normalizedIncomingTime = rawIncomingTime - clockSkew;
 
     // Future-skew clamp: Never allow normalized incoming timestamp to exceed localNow + 60s
+    // If a record is authored far in the future (> 60s), clamp its updatedAt to prevent locking out future edits on other devices.
     if (normalizedIncomingTime > localNow + 60_000) {
       normalizedIncomingTime = localNow;
       incoming.updatedAt = new Date(localNow).toISOString();
@@ -579,9 +690,9 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
           skipped++;
         }
       } else {
-        // Near-tie within 5000ms clock skew: allow deletions and task completions to win
+        // Near-tie within 30000ms clock skew: allow deletions and task completions to win
         const timeDiff = existingTime - normalizedIncomingTime;
-        if (timeDiff <= 5000) {
+        if (timeDiff <= 30000) {
           if (incoming.isDeleted && !existing.isDeleted) {
             toPut.push(incoming);
             updated++;
@@ -650,7 +761,6 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
 
     const stats: Record<string, MergeStats> = {};
 
-    // Do NOT infer device clock skew from exportedAt; exportedAt represents backup file creation time, not clock offset.
     // If a payload explicitly supplies a measured deviceClockOffsetMs, respect it; otherwise 0.
     const clockSkewMs = typeof payload.deviceClockOffsetMs === 'number' ? payload.deviceClockOffsetMs : 0;
     const mergeOptions = { clockSkewMs };
@@ -668,6 +778,136 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
         db.libraryItems,
       ],
       async () => {
+        // Pre-scan existing records to identify newly arriving completions and calculate XP/skill deltas (RC1)
+        let incomingNewXpDelta = 0;
+        const incomingSkillXpDelta: Record<string, number> = {};
+        const incomingSkillCompletionsDelta: Record<string, number> = {};
+
+        // Build project -> skillId map for routing skill progress
+        const projectSkillMap = new Map<string, string>();
+        const existingProjects = await db.projects.toArray();
+        for (const p of existingProjects) {
+          if (p && p.id && p.skillId) {
+            projectSkillMap.set(p.id, p.skillId);
+          }
+        }
+        if (Array.isArray(tables.projects)) {
+          for (const p of tables.projects) {
+            if (p && p.id && p.skillId && !projectSkillMap.has(p.id)) {
+              projectSkillMap.set(p.id, p.skillId);
+            }
+          }
+        }
+
+        // 1. Task completions delta
+        if (Array.isArray(tables.tasks) && tables.tasks.length > 0) {
+          const taskIds = tables.tasks.filter((t: any) => t && t.id).map((t: any) => t.id);
+          const existingTasks = await db.tasks.bulkGet(taskIds);
+          const existingTasksMap = new Map<string, Task>();
+          for (const t of existingTasks) {
+            if (t && t.id) existingTasksMap.set(t.id, t);
+          }
+
+          for (const raw of tables.tasks) {
+            if (!raw || !raw.id || !raw.completed) continue;
+            const existingTask = existingTasksMap.get(raw.id);
+            if (!existingTask || !existingTask.completed) {
+              // Newly completed task!
+              let taskXp = 0;
+              if (typeof raw.xpAwarded === 'number' && !isNaN(raw.xpAwarded) && raw.xpAwarded >= 0) {
+                taskXp = raw.xpAwarded;
+              } else {
+                let potential = 10;
+                if (raw.priority === 'p1') potential += 5;
+                else if (raw.priority === 'p2') potential += 3;
+                if (raw.dueDate) potential += 5;
+                taskXp = potential;
+              }
+              incomingNewXpDelta += taskXp;
+              const skillId = raw.projectId ? projectSkillMap.get(raw.projectId) : undefined;
+              if (skillId) {
+                incomingSkillXpDelta[skillId] = (incomingSkillXpDelta[skillId] || 0) + taskXp;
+                incomingSkillCompletionsDelta[skillId] = (incomingSkillCompletionsDelta[skillId] || 0) + 1;
+              }
+            }
+          }
+        }
+
+        // 2. Habit check-ins delta
+        if (Array.isArray(tables.habits) && tables.habits.length > 0) {
+          const habitIds = tables.habits.filter((h: any) => h && h.id).map((h: any) => h.id);
+          const existingHabits = await db.habits.bulkGet(habitIds);
+          const existingHabitsMap = new Map<string, Habit>();
+          for (const h of existingHabits) {
+            if (h && h.id) existingHabitsMap.set(h.id, h);
+          }
+
+          for (const raw of tables.habits) {
+            if (!raw || !raw.id || !Array.isArray(raw.completedDates)) continue;
+            const existingHabit = existingHabitsMap.get(raw.id);
+            const existingDatesSet = new Set(existingHabit?.completedDates || []);
+            let newCheckins = 0;
+            for (const d of raw.completedDates) {
+              if (typeof d === 'string' && !existingDatesSet.has(d)) {
+                newCheckins++;
+              }
+            }
+            if (newCheckins > 0) {
+              const habitXp = newCheckins * 15;
+              incomingNewXpDelta += habitXp;
+              const skillId = raw.projectId ? projectSkillMap.get(raw.projectId) : undefined;
+              if (skillId) {
+                incomingSkillXpDelta[skillId] = (incomingSkillXpDelta[skillId] || 0) + habitXp;
+                incomingSkillCompletionsDelta[skillId] = (incomingSkillCompletionsDelta[skillId] || 0) + newCheckins;
+              }
+            }
+          }
+        }
+
+        // 3. Library items delta
+        if (Array.isArray(tables.libraryItems) && tables.libraryItems.length > 0) {
+          const itemIds = tables.libraryItems.filter((i: any) => i && i.id).map((i: any) => i.id);
+          const existingItems = await db.libraryItems.bulkGet(itemIds);
+          const existingItemsMap = new Map<string, LibraryItem>();
+          for (const i of existingItems) {
+            if (i && i.id) existingItemsMap.set(i.id, i);
+          }
+
+          for (const raw of tables.libraryItems) {
+            if (!raw || !raw.id || !raw.xpAwarded) continue;
+            const existingItem = existingItemsMap.get(raw.id);
+            if (!existingItem || !existingItem.xpAwarded) {
+              const libXp = raw.xpEarned || (raw.type === 'book' ? 100 : 50);
+              incomingNewXpDelta += libXp;
+              const skillId = raw.projectId ? projectSkillMap.get(raw.projectId) : undefined;
+              if (skillId) {
+                incomingSkillXpDelta[skillId] = (incomingSkillXpDelta[skillId] || 0) + libXp;
+                incomingSkillCompletionsDelta[skillId] = (incomingSkillCompletionsDelta[skillId] || 0) + 1;
+              }
+            }
+          }
+        }
+
+        // 4. Achievements delta
+        if (Array.isArray(tables.achievements) && tables.achievements.length > 0) {
+          const achIds = tables.achievements.filter((a: any) => a && a.id).map((a: any) => a.id);
+          const existingAchs = await db.achievements.bulkGet(achIds);
+          const existingAchsMap = new Map<string, Achievement>();
+          for (const a of existingAchs) {
+            if (a && a.id) existingAchsMap.set(a.id, a);
+          }
+
+          for (const raw of tables.achievements) {
+            if (!raw || !raw.id || (!raw.unlocked && !raw.unlockedAt)) continue;
+            const existingAch = existingAchsMap.get(raw.id);
+            const wasUnlocked = Boolean(existingAch && (existingAch.unlockedAt || (existingAch as any).unlocked));
+            if (!wasUnlocked) {
+              const achXp = raw.xpReward || 0;
+              incomingNewXpDelta += achXp;
+            }
+          }
+        }
+
         // 1. Merge Tasks
         if (tables.tasks) {
           stats.tasks = await mergeTableRecords<Task>(db.tasks, tables.tasks, sanitizeTask, mergeOptions, mergeTasks);
@@ -675,12 +915,22 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
 
         // 2. Merge Projects
         if (tables.projects) {
-          stats.projects = await mergeTableRecords<Project>(db.projects, tables.projects, sanitizeProject, mergeOptions);
+          stats.projects = await mergeTableRecords<Project>(db.projects, tables.projects, sanitizeProject, mergeOptions, mergeProjects);
         }
 
-        // 3. Merge Skills
+        // 3. Merge Skills (additive CRDT delta progress)
         if (tables.skills) {
-          stats.skills = await mergeTableRecords<Skill>(db.skills, tables.skills, sanitizeSkill, mergeOptions, mergeSkills);
+          stats.skills = await mergeTableRecords<Skill>(
+            db.skills,
+            tables.skills,
+            sanitizeSkill,
+            mergeOptions,
+            (existing, incoming, isIncomingNewer) =>
+              mergeSkills(existing, incoming, isIncomingNewer, {
+                deltaXp: incomingSkillXpDelta[existing.id] || 0,
+                deltaCompletions: incomingSkillCompletionsDelta[existing.id] || 0,
+              })
+          );
         }
 
         // 4. Merge Habit Events (atomic check-ins with deduplication invariant)
@@ -750,7 +1000,7 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
               dedupedIncomingMap.set(prof.id, prof);
             } else {
               const isNewer = new Date(prof.updatedAt || 0).getTime() >= new Date(prev.updatedAt || 0).getTime();
-              dedupedIncomingMap.set(prof.id, mergeUserProfiles(prev, prof, isNewer));
+              dedupedIncomingMap.set(prof.id, mergeUserProfiles(prev, prof, isNewer, incomingNewXpDelta));
             }
           }
 
@@ -763,7 +1013,7 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
               const isNewer =
                 new Date(normalizedDefault.updatedAt || 0).getTime() >=
                 new Date(existingUser1.updatedAt || 0).getTime();
-              await db.userProfile.put(mergeUserProfiles(existingUser1, normalizedDefault, isNewer));
+              await db.userProfile.put(mergeUserProfiles(existingUser1, normalizedDefault, isNewer, incomingNewXpDelta));
             } else {
               await db.userProfile.put(normalizedDefault);
             }
@@ -775,7 +1025,8 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
             Array.from(dedupedIncomingMap.values()),
             sanitizeUserProfile,
             mergeOptions,
-            mergeUserProfiles
+            (existing, incoming, isIncomingNewer) =>
+              mergeUserProfiles(existing, incoming, isIncomingNewer, incomingNewXpDelta)
           );
         }
 
