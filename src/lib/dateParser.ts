@@ -795,7 +795,102 @@ export function formatTimeRange(dueTime: string, duration?: number | string): st
   return `${startFormatted}-${endFormatted}`;
 }
 
-export function formatDueDateDisplay(dateStr?: string, timeStr?: string, duration?: number | string): string {
+/**
+ * Computes the scheduled end date and time for a task based on its dueDate, dueTime, and duration.
+ * If duration is absent or <= 0, returns the dueDate and dueTime.
+ */
+export function getTaskEndDateTime(
+  dueDate?: string,
+  dueTime?: string,
+  duration?: number | string
+): { endDate: string; endTime?: string } | null {
+  if (!dueDate) return null;
+  const numDuration = typeof duration === 'string' ? parseInt(duration, 10) : duration;
+  if (!numDuration || isNaN(numDuration) || numDuration <= 0) {
+    return { endDate: dueDate, endTime: dueTime };
+  }
+
+  if (dueTime) {
+    const end = addMinutesToDateTime(dueDate, dueTime, numDuration);
+    return { endDate: end.date, endTime: end.time };
+  }
+
+  // Without dueTime, if duration is 24h or more, advance calendar days
+  const additionalDays = Math.floor(numDuration / 1440);
+  if (additionalDays > 0) {
+    const end = addMinutesToDateTime(dueDate, '00:00', additionalDays * 1440);
+    return { endDate: end.date };
+  }
+
+  return { endDate: dueDate };
+}
+
+/**
+ * Checks if a task is actively in progress / ongoing right now.
+ * A task is ongoing if it is not completed, has a dueDate, dueTime, and duration > 0,
+ * and current time is between the start timestamp and end timestamp.
+ */
+export function isTaskOngoing(
+  task: {
+    dueDate?: string;
+    dueTime?: string;
+    duration?: number | string;
+    completed?: boolean;
+  },
+  now: Date = new Date()
+): boolean {
+  if (task.completed || !task.dueDate || !task.dueTime) return false;
+  const numDuration = typeof task.duration === 'string' ? parseInt(task.duration, 10) : task.duration;
+  if (!numDuration || isNaN(numDuration) || numDuration <= 0) return false;
+
+  const [sy, sm, sd] = task.dueDate.split('-').map(Number);
+  const [sh, smin] = task.dueTime.split(':').map(Number);
+  if (isNaN(sy) || isNaN(sm) || isNaN(sd) || isNaN(sh)) return false;
+
+  const startDt = new Date(sy, sm - 1, sd, sh, isNaN(smin) ? 0 : smin, 0, 0);
+  const end = addMinutesToDateTime(task.dueDate, task.dueTime, numDuration);
+  const [ey, em, ed] = end.date.split('-').map(Number);
+  const [eh, emin] = (end.time || '00:00').split(':').map(Number);
+  const endDt = new Date(ey, em - 1, ed, eh, emin, 0, 0);
+
+  const nowMs = now.getTime();
+  return nowMs >= startDt.getTime() && nowMs < endDt.getTime();
+}
+
+/**
+ * Determines whether a task is overdue.
+ * Completed tasks and unscheduled tasks are never overdue.
+ * Tasks that are actively in progress (ongoing) are never overdue.
+ * For tasks with a duration, the effective end date is evaluated against todayStr.
+ * Tasks scheduled or ending today (effectiveEndDate >= todayStr) are not overdue.
+ */
+export function isTaskOverdue(
+  task: {
+    dueDate?: string;
+    dueTime?: string;
+    duration?: number | string;
+    completed?: boolean;
+  },
+  todayStr: string = formatLocalDate(),
+  now: Date = new Date()
+): boolean {
+  if (task.completed || !task.dueDate) return false;
+
+  // An active ongoing task is never overdue
+  if (isTaskOngoing(task, now)) return false;
+
+  const endInfo = getTaskEndDateTime(task.dueDate, task.dueTime, task.duration);
+  const effectiveEndDate = endInfo?.endDate || task.dueDate;
+
+  return effectiveEndDate < todayStr;
+}
+
+export function formatDueDateDisplay(
+  dateStr?: string,
+  timeStr?: string,
+  duration?: number | string,
+  now: Date = new Date()
+): string {
   if (!dateStr && !timeStr) return '';
 
   const formattedTime = timeStr ? formatTimeRange(timeStr, duration) : '';
@@ -803,15 +898,19 @@ export function formatDueDateDisplay(dateStr?: string, timeStr?: string, duratio
     return formattedTime;
   }
 
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
+  const todayStr = formatLocalDate(now);
+  const nowDay = new Date(now);
+  nowDay.setHours(0, 0, 0, 0);
 
   const [y, m, d] = dateStr.split('-').map(Number);
   const targetDate = new Date(y, m - 1, d);
   targetDate.setHours(0, 0, 0, 0);
 
-  const diffTime = targetDate.getTime() - now.getTime();
+  const diffTime = targetDate.getTime() - nowDay.getTime();
   const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  const endInfo = getTaskEndDateTime(dateStr, timeStr, duration);
+  const isOngoing = isTaskOngoing({ dueDate: dateStr, dueTime: timeStr, duration }, now);
 
   let label = '';
   if (diffDays === 0) {
@@ -819,9 +918,33 @@ export function formatDueDateDisplay(dateStr?: string, timeStr?: string, duratio
   } else if (diffDays === 1) {
     label = 'Tomorrow';
   } else if (diffDays === -1) {
-    label = 'Yesterday (Overdue)';
+    if (isOngoing) {
+      label = 'In Progress';
+    } else if (endInfo && endInfo.endDate >= todayStr) {
+      label = 'Today';
+    } else {
+      label = 'Yesterday (Overdue)';
+    }
   } else if (diffDays < -1) {
-    label = `${Math.abs(diffDays)}d overdue`;
+    if (isOngoing) {
+      label = 'In Progress';
+    } else if (endInfo && endInfo.endDate >= todayStr) {
+      label = endInfo.endDate === todayStr ? 'Today' : targetDate.toLocaleDateString('en-US', { weekday: 'short' });
+    } else {
+      if (endInfo?.endDate) {
+        const [ey, em, ed] = endInfo.endDate.split('-').map(Number);
+        const endDt = new Date(ey, em - 1, ed);
+        endDt.setHours(0, 0, 0, 0);
+        const endDiffDays = Math.round((endDt.getTime() - nowDay.getTime()) / (1000 * 60 * 60 * 24));
+        if (endDiffDays === -1) {
+          label = 'Yesterday (Overdue)';
+        } else {
+          label = `${Math.abs(endDiffDays)}d overdue`;
+        }
+      } else {
+        label = `${Math.abs(diffDays)}d overdue`;
+      }
+    }
   } else if (diffDays < 7) {
     label = targetDate.toLocaleDateString('en-US', { weekday: 'short' });
   } else {

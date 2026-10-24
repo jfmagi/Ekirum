@@ -8,7 +8,12 @@ import {
   Plus,
 } from 'lucide-react';
 import { ViewType } from '../../types';
-import { formatLocalDate } from '../../lib/dateParser';
+import {
+  formatLocalDate,
+  isTaskOngoing,
+  isTaskOverdue,
+  getTaskEndDateTime,
+} from '../../lib/dateParser';
 
 import { useShallow } from 'zustand/react/shallow';
 
@@ -36,7 +41,14 @@ export const MobileNavBar: React.FC = () => {
   const todayCount = useMemo(() => {
     let count = 0;
     for (const t of tasks) {
-      if (!t.isDeleted && !t.completed && (t.dueDate === todayStr || (t.dueDate && t.dueDate < todayStr))) {
+      if (
+        !t.isDeleted &&
+        !t.completed &&
+        (t.dueDate === todayStr ||
+          isTaskOngoing(t) ||
+          getTaskEndDateTime(t.dueDate, t.dueTime, t.duration)?.endDate === todayStr ||
+          isTaskOverdue(t, todayStr))
+      ) {
         count++;
       }
     }

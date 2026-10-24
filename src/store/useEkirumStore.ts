@@ -30,8 +30,8 @@ import { db, initializeDatabase } from '../lib/db';
 import { exportAll, importAndMerge } from '../lib/syncEngine';
 import { evaluateAchievements, applySkillXpGains } from '../lib/achievements';
 import { getLibraryXp } from '../lib/library';
-import { formatLocalDate } from '../lib/dateParser';
-export { formatLocalDate };
+import { formatLocalDate, isTaskOverdue } from '../lib/dateParser';
+export { formatLocalDate, isTaskOverdue };
 import {
   getBackupStatus,
   pickBackupDirectory,
@@ -1009,7 +1009,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           if (task.priority === 'p1') potentialXp += 5;
           else if (task.priority === 'p2') potentialXp += 3;
 
-          if (task.dueDate && task.dueDate >= todayStr) {
+          if (task.dueDate && !isTaskOverdue(task, todayStr)) {
             potentialXp += 5; // Timeliness bonus
           }
 

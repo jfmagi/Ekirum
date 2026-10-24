@@ -576,7 +576,7 @@ async function runTests() {
       lastModified: 1000,
       content: JSON.stringify({
         schemaVersion: 1,
-        deviceId: 'foreign-old',
+        deviceId: 'foreign-device-1',
         exportedAt: '2026-10-10T10:00:00.000Z',
         tables: {
           tasks: [
@@ -602,10 +602,35 @@ async function runTests() {
       lastModified: 2000,
       content: JSON.stringify({
         schemaVersion: 1,
-        deviceId: 'foreign-active',
+        deviceId: 'foreign-device-1',
         exportedAt: '2026-10-18T10:00:00.000Z',
         tables: {
           tasks: [],
+        },
+      }),
+    },
+    {
+      name: 'device-foreign-other-device.json',
+      lastModified: 2500,
+      content: JSON.stringify({
+        schemaVersion: 1,
+        deviceId: 'foreign-device-2',
+        exportedAt: '2026-10-18T12:00:00.000Z',
+        tables: {
+          tasks: [
+            {
+              id: 'task-from-other-device',
+              projectId: 'proj-1',
+              title: 'Other Device Task',
+              priority: 'p3',
+              labels: [],
+              completed: false,
+              subtasks: [],
+              createdAt: '2026-10-18T12:00:00.000Z',
+              updatedAt: '2026-10-18T12:00:00.000Z',
+              isDeleted: false,
+            },
+          ],
         },
       }),
     },
@@ -614,7 +639,7 @@ async function runTests() {
       lastModified: 3000,
       content: JSON.stringify({
         schemaVersion: 1,
-        deviceId: 'foreign-active',
+        deviceId: 'foreign-device-1',
         exportedAt: '2026-10-19T10:00:00.000Z',
         tables: {
           tasks: [
@@ -660,11 +685,12 @@ async function runTests() {
   await syncDeviceFiles(multiDirHandle, true, true);
   const taskFromSnapshotAlongside = await db.tasks.get('task-from-snapshot-alongside-device');
   const taskFromOldDevice = await db.tasks.get('task-from-old-device');
-  if (!taskFromSnapshotAlongside || !taskFromOldDevice) {
+  const taskFromOtherDevice = await db.tasks.get('task-from-other-device');
+  if (!taskFromSnapshotAlongside || !taskFromOldDevice || !taskFromOtherDevice) {
     throw new Error('Failed to merge both snapshot and device files when both are present in sync folder.');
   }
-  if (!removedEntries.includes('device-foreign-old.json') || removedEntries.includes('device-foreign-active.json')) {
-    throw new Error(`Expected redundant device-foreign-old.json to be pruned, got removedEntries=${JSON.stringify(removedEntries)}`);
+  if (!removedEntries.includes('device-foreign-old.json') || removedEntries.includes('device-foreign-active.json') || removedEntries.includes('device-foreign-other-device.json')) {
+    throw new Error(`Expected redundant device-foreign-old.json to be pruned while preserving active and other device files, got removedEntries=${JSON.stringify(removedEntries)}`);
   }
   console.log('  ✓ Merged both device files and backup snapshots and pruned redundant foreign device file.');
 

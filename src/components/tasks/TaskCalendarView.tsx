@@ -1,7 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { Task, Priority } from '../../types';
-import { formatDuration, formatTimeRange } from '../../lib/dateParser';
+import {
+  formatDuration,
+  formatTimeRange,
+  isTaskOverdue,
+  getTaskEndDateTime,
+} from '../../lib/dateParser';
 import { TaskItem } from './TaskItem';
 import {
   ChevronLeft,
@@ -25,7 +30,15 @@ export function isTaskScheduledOnDate(
   // Direct match to assigned due date
   if (task.dueDate === dateStr) return true;
 
-  // Completed tasks are only shown on their historical dueDate
+  // Match if task spans across dates due to duration
+  if (task.dueDate && task.dueTime && task.duration && task.duration > 0) {
+    const end = getTaskEndDateTime(task.dueDate, task.dueTime, task.duration);
+    if (end && dateStr >= task.dueDate && dateStr <= end.endDate) {
+      return true;
+    }
+  }
+
+  // Completed tasks are only shown on their scheduled date range
   if (task.completed) return false;
 
   // Recurring tasks project onto all matching future days
@@ -277,6 +290,13 @@ export const TaskCalendarView: React.FC = () => {
         const [ty, tm, td] = t.dueDate.split('-').map(Number);
         candidateDates.set(t.dueDate, new Date(ty, tm - 1, td));
       }
+      if (t.dueDate && t.dueTime && t.duration && t.duration > 0) {
+        const end = getTaskEndDateTime(t.dueDate, t.dueTime, t.duration);
+        if (end?.endDate && !candidateDates.has(end.endDate)) {
+          const [ey, em, ed] = end.endDate.split('-').map(Number);
+          candidateDates.set(end.endDate, new Date(ey, em - 1, ed));
+        }
+      }
     });
 
     candidateDates.forEach((dateObj, dateStr) => {
@@ -300,7 +320,7 @@ export const TaskCalendarView: React.FC = () => {
 
   // Overdue tasks
   const overdueTasks = useMemo(() => {
-    return filteredTasks.filter((t) => !t.completed && t.dueDate && t.dueDate < todayStr);
+    return filteredTasks.filter((t) => isTaskOverdue(t, todayStr));
   }, [filteredTasks, todayStr]);
 
   // Selected date tasks

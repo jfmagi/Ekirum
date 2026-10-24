@@ -4,7 +4,12 @@ import { TaskItem } from './TaskItem';
 import { FilterToolbar } from './FilterToolbar';
 import { Task } from '../../types';
 import { Calendar, Edit3 } from 'lucide-react';
-import { formatLocalDate } from '../../lib/dateParser';
+import {
+  formatLocalDate,
+  isTaskOverdue,
+  isTaskOngoing,
+  getTaskEndDateTime,
+} from '../../lib/dateParser';
 
 import { useShallow } from 'zustand/react/shallow';
 
@@ -78,9 +83,13 @@ export const TaskTimelineView: React.FC = () => {
   activeTasks.forEach((t) => {
     if (!t.dueDate) {
       unscheduled.push(t);
-    } else if (t.dueDate < todayStr) {
+    } else if (isTaskOverdue(t, todayStr, now)) {
       overdue.push(t);
-    } else if (t.dueDate === todayStr) {
+    } else if (
+      t.dueDate === todayStr ||
+      isTaskOngoing(t, now) ||
+      getTaskEndDateTime(t.dueDate, t.dueTime, t.duration)?.endDate === todayStr
+    ) {
       today.push(t);
     } else if (t.dueDate === tomorrowStr) {
       nextDay.push(t);

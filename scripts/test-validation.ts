@@ -1,6 +1,12 @@
 import 'fake-indexeddb/auto';
 import assert from 'node:assert';
-import { formatLocalDate } from '../src/lib/dateParser';
+import {
+  formatLocalDate,
+  getTaskEndDateTime,
+  isTaskOngoing,
+  isTaskOverdue,
+  formatDueDateDisplay,
+} from '../src/lib/dateParser';
 import { MAX_LENGTHS, clampString, clampOptionalString } from '../src/lib/validation';
 import {
   sanitizeTask,
@@ -805,7 +811,55 @@ assert.ok(preservedHabit);
 assert.strictEqual(preservedHabit.completedDates.length, 2, 'Existing habit completedDates must not be wiped when habitEvents table is omitted');
 assert.strictEqual(preservedHabit.completedDates[0], '2026-10-14');
 assert.strictEqual(preservedHabit.completedDates[1], '2026-10-15');
-console.log('Test 18: Habit completedDates preservation when habitEvents are omitted: PASSED');
+// Test 19: Long duration multi-day tasks in progress are not overdue and format accurately
+const longTask = {
+  id: 'task-long-duration',
+  dueDate: '2026-10-24',
+  dueTime: '18:00',
+  duration: 1080, // 18 hours: ends 2026-10-25 12:00
+  completed: false,
+};
+
+// 19a: End datetime calculation
+const endRes = getTaskEndDateTime(longTask.dueDate, longTask.dueTime, longTask.duration);
+assert.ok(endRes);
+assert.strictEqual(endRes.endDate, '2026-10-25', '18h duration task starting Oct 24 18:00 must end Oct 25');
+assert.strictEqual(endRes.endTime, '12:00', '18h duration task must end at 12:00');
+
+// 19b: In-progress / ongoing state during task execution
+const duringTime = new Date('2026-10-25T00:30:00');
+assert.strictEqual(isTaskOngoing(longTask, duringTime), true, 'Task must be detected as ongoing at 00:30');
+assert.strictEqual(isTaskOverdue(longTask, '2026-10-25', duringTime), false, 'Ongoing task must NOT be overdue');
+assert.strictEqual(
+  formatDueDateDisplay(longTask.dueDate, longTask.dueTime, longTask.duration, duringTime),
+  'In Progress, 18-12',
+  'Display label must show "In Progress, 18-12" instead of "Yesterday (Overdue)"'
+);
+
+// 19c: After duration ends on same day (Oct 25 15:00)
+const afternoonTime = new Date('2026-10-25T15:00:00');
+assert.strictEqual(isTaskOngoing(longTask, afternoonTime), false, 'Task duration ended at 12:00');
+assert.strictEqual(isTaskOverdue(longTask, '2026-10-25', afternoonTime), false, 'Task ending today is not overdue today');
+assert.strictEqual(
+  formatDueDateDisplay(longTask.dueDate, longTask.dueTime, longTask.duration, afternoonTime),
+  'Today, 18-12',
+  'Task ending today must show "Today, 18-12"'
+);
+
+// 19d: After end date has passed (Oct 26 10:00)
+const nextDayTime = new Date('2026-10-26T10:00:00');
+assert.strictEqual(isTaskOngoing(longTask, nextDayTime), false);
+assert.strictEqual(isTaskOverdue(longTask, '2026-10-26', nextDayTime), true, 'Task is overdue on Oct 26');
+assert.strictEqual(
+  formatDueDateDisplay(longTask.dueDate, longTask.dueTime, longTask.duration, nextDayTime),
+  'Yesterday (Overdue), 18-12',
+  'Task ended yesterday must show "Yesterday (Overdue), 18-12"'
+);
+
+// 19e: Completed task is never overdue
+assert.strictEqual(isTaskOverdue({ ...longTask, completed: true }, '2026-10-26', nextDayTime), false);
+
+console.log('Test 19: Long duration task in-progress, end date calculation & non-overdue display: PASSED');
 
 console.log('\n🎉 ALL VALIDATION & DATA INTEGRITY TESTS PASSED!');
 

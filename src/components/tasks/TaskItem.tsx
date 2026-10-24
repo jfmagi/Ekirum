@@ -1,7 +1,13 @@
 import React from 'react';
 import { Task, Priority } from '../../types';
 import { useEkirumStore } from '../../store/useEkirumStore';
-import { formatDueDateDisplay, formatLocalDate, formatDuration } from '../../lib/dateParser';
+import {
+  formatDueDateDisplay,
+  formatLocalDate,
+  formatDuration,
+  isTaskOverdue,
+  isTaskOngoing,
+} from '../../lib/dateParser';
 import {
   Check,
   Calendar,
@@ -45,9 +51,10 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({ task, onOpenDetai
   const subtasksTotal = task.subtasks?.length || 0;
   const subtasksCompleted = task.subtasks?.filter((s) => s.completed).length || 0;
 
-  // Check if overdue
+  // Check if overdue or ongoing
   const todayStr = formatLocalDate();
-  const isOverdue = !task.completed && task.dueDate && task.dueDate < todayStr;
+  const isOverdue = isTaskOverdue(task, todayStr);
+  const isOngoing = isTaskOngoing(task);
 
   return (
     <div
@@ -177,10 +184,14 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({ task, onOpenDetai
               {/* Duration badge */}
               {task.duration && (
                 <div
-                  className="flex items-center gap-1 font-mono text-[10px] text-blue-800 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200/70"
-                  title={`Estimated duration: ${formatDuration(task.duration)}`}
+                  className={`flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.2 rounded border ${
+                    isOngoing
+                      ? 'text-emerald-800 bg-emerald-50 border-emerald-300 font-medium'
+                      : 'text-blue-800 bg-blue-50 border-blue-200/70'
+                  }`}
+                  title={isOngoing ? `In progress (${formatDuration(task.duration)})` : `Estimated duration: ${formatDuration(task.duration)}`}
                 >
-                  <Timer size={10} className="text-blue-600" />
+                  <Timer size={10} className={isOngoing ? 'text-emerald-600 animate-pulse' : 'text-blue-600'} />
                   <span>{formatDuration(task.duration)}</span>
                 </div>
               )}

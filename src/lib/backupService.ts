@@ -55,23 +55,110 @@ export async function saveDirectoryHandle(handle: FileSystemDirectoryHandle): Pr
 }
 
 /**
- * Query or request permission on the directory handle.
+ * Directly probe whether the handle can be accessed for reading.
+ * On Android SAF or in browsers where queryPermission is absent/unimplemented,
+ * successful entry probing confirms that OS-level permission is active and granted.
+ */
+async function probeHandleAccess(handle: FileSystemDirectoryHandle): Promise<boolean> {
+  if (!handle) return false;
+  try {
+    if (typeof (handle as any).values === 'function') {
+      const iterator = (handle as any).values();
+      await iterator.next();
+      return true;
+    }
+    if (typeof (handle as any)[Symbol.asyncIterator] === 'function') {
+      const iterator = (handle as any)[Symbol.asyncIterator]();
+      await iterator.next();
+      return true;
+    }
+    if (typeof (handle as any).entries === 'function') {
+      const iterator = (handle as any).entries();
+      await iterator.next();
+      return true;
+    }
+    if (typeof (handle as any).getFileHandle === 'function') {
+      try {
+        await (handle as any).getFileHandle('__ekirum_permission_probe__', { create: false });
+        return true;
+      } catch (probeErr: any) {
+        if (probeErr?.name === 'NotFoundError') {
+          return true; // Directory is accessible and inspectable!
+        }
+        if (probeErr?.name === 'NotAllowedError' || probeErr?.name === 'SecurityError') {
+          return false;
+        }
+      }
+    }
+    return false;
+  } catch (err: any) {
+    if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') {
+      return false;
+    }
+    console.warn('probeHandleAccess check:', err);
+    return false;
+  }
+}
+
+/**
+ * Query or request permission on the directory handle with robust feature detection
+ * and fallback capability probing for Android SAF / browsers without queryPermission.
  */
 export async function verifyHandlePermission(
   handle: FileSystemDirectoryHandle,
   requestIfNeeded = false
 ): Promise<BackupFolderPermission> {
-  try {
-    const query = await (handle as any).queryPermission({ mode: 'readwrite' });
-    if (query === 'granted') return 'granted';
-    if (!requestIfNeeded) return 'prompt';
+  if (!handle) return 'denied';
 
-    const req = await (handle as any).requestPermission({ mode: 'readwrite' });
-    return req === 'granted' ? 'granted' : 'denied';
-  } catch (err) {
-    console.warn('Handle permission check error:', err);
-    return 'prompt';
+  // 1. Try standard queryPermission if supported
+  if (typeof (handle as any).queryPermission === 'function') {
+    try {
+      const query = await (handle as any).queryPermission({ mode: 'readwrite' });
+      if (query === 'granted') return 'granted';
+      if (query === 'denied') return 'denied';
+
+      // If 'prompt' and user gesture allows requestPermission
+      if (requestIfNeeded && typeof (handle as any).requestPermission === 'function') {
+        try {
+          const req = await (handle as any).requestPermission({ mode: 'readwrite' });
+          if (req === 'granted') return 'granted';
+          if (req === 'denied') return 'denied';
+        } catch (reqErr) {
+          console.warn('requestPermission error:', reqErr);
+        }
+      }
+
+      // On Android SAF, queryPermission can return 'prompt' even when the handle is already
+      // permitted by the OS SAF document tree grant. Probe direct access before giving up.
+      const isActuallyAccessible = await probeHandleAccess(handle);
+      if (isActuallyAccessible) {
+        return 'granted';
+      }
+
+      return 'prompt';
+    } catch (err: any) {
+      console.warn('queryPermission threw error, falling back to direct probe:', err);
+    }
   }
+
+  // 2. Fallback for browsers / Android environments where queryPermission is absent or threw:
+  // Probe whether the directory can be read directly
+  const canAccess = await probeHandleAccess(handle);
+  if (canAccess) {
+    return 'granted';
+  }
+
+  // 3. If direct read failed and requestIfNeeded is true, try requestPermission if available
+  if (requestIfNeeded && typeof (handle as any).requestPermission === 'function') {
+    try {
+      const req = await (handle as any).requestPermission({ mode: 'readwrite' });
+      return req === 'granted' ? 'granted' : req === 'denied' ? 'denied' : 'prompt';
+    } catch (reqErr) {
+      console.warn('requestPermission error in fallback:', reqErr);
+    }
+  }
+
+  return 'prompt';
 }
 
 /**
@@ -372,24 +459,31 @@ export async function performBackup(
 /**
  * Safely enumerate directory entries across desktop and mobile browsers,
  * with fallbacks for handle.values(), handle[Symbol.asyncIterator], and handle.entries().
+ * Throws when iteration methods fail with permission/system errors so callers do not
+ * mistakenly treat failure as an empty folder.
  */
 async function getDirectoryEntries(handle: FileSystemDirectoryHandle): Promise<FileSystemHandle[]> {
   const entries: FileSystemHandle[] = [];
+  let attemptedMethod = false;
+  let lastError: unknown = null;
 
   // Try standard handle.values()
   if (typeof (handle as any).values === 'function') {
+    attemptedMethod = true;
     try {
       for await (const entry of (handle as any).values()) {
         if (entry) entries.push(entry);
       }
       return entries;
     } catch (err) {
+      lastError = err;
       console.warn('handle.values() failed, falling back to async iterator:', err);
     }
   }
 
   // Try handle[Symbol.asyncIterator]()
   if (typeof (handle as any)[Symbol.asyncIterator] === 'function') {
+    attemptedMethod = true;
     try {
       for await (const item of (handle as any)) {
         if (Array.isArray(item) && item[1]) {
@@ -400,20 +494,29 @@ async function getDirectoryEntries(handle: FileSystemDirectoryHandle): Promise<F
       }
       return entries;
     } catch (err) {
+      lastError = err;
       console.warn('handle[Symbol.asyncIterator] failed, falling back to entries():', err);
     }
   }
 
   // Try handle.entries()
   if (typeof (handle as any).entries === 'function') {
+    attemptedMethod = true;
     try {
       for await (const [_, entry] of (handle as any).entries()) {
         if (entry) entries.push(entry);
       }
       return entries;
     } catch (err) {
+      lastError = err;
       console.warn('handle.entries() failed:', err);
     }
+  }
+
+  // If iteration methods were available on handle and all threw errors (e.g. NotAllowedError),
+  // throw so caller knows enumeration failed rather than mistaking failure for an empty folder.
+  if (attemptedMethod && lastError) {
+    throw lastError;
   }
 
   return entries;
@@ -778,26 +881,37 @@ export async function syncDeviceFiles(
       }
     }
 
-    // If multiple canonical foreign device-<id>.json files exist (e.g. orphaned files from old browser resets),
-    // keep the newest foreign device file and clean up older superseded ones once all candidates have been merged.
-    const canonicalForeign = parsedCandidates
-      .filter((c) => c.isCanonicalForeignDevice)
-      .sort((a, b) => b.sortTime - a.sortTime);
-
-    if (canonicalForeign.length > 1 && filesFailed === 0) {
-      const newestForeign = canonicalForeign[0];
-      if (supersededSet.has(newestForeign.entry.name)) {
-        supersededSet.delete(newestForeign.entry.name);
-        supersededChanged = true;
+    // Clean up older superseded files for the SAME foreign deviceId only (never across different deviceIds),
+    // and only if all candidates merged without errors.
+    if (filesFailed === 0) {
+      const foreignByDeviceId = new Map<string, ParsedCandidate[]>();
+      for (const c of parsedCandidates) {
+        if (!c.isCanonicalForeignDevice) continue;
+        const devId = typeof c.data?.deviceId === 'string' && c.data.deviceId ? c.data.deviceId : '';
+        if (!devId || devId === localDeviceId) continue;
+        const list = foreignByDeviceId.get(devId) || [];
+        list.push(c);
+        foreignByDeviceId.set(devId, list);
       }
-      const redundantForeign = canonicalForeign.slice(1);
-      for (const stale of redundantForeign) {
-        if (typeof (handle as any).removeEntry === 'function') {
-          await handle.removeEntry(stale.entry.name).catch(() => {});
-        }
-        if (!supersededSet.has(stale.entry.name)) {
-          supersededSet.add(stale.entry.name);
+
+      for (const [, deviceCandidates] of foreignByDeviceId) {
+        if (deviceCandidates.length <= 1) continue;
+        // Sort descending by sortTime: newest first
+        deviceCandidates.sort((a, b) => b.sortTime - a.sortTime);
+        const newest = deviceCandidates[0];
+        if (supersededSet.has(newest.entry.name)) {
+          supersededSet.delete(newest.entry.name);
           supersededChanged = true;
+        }
+        const olderSuperseded = deviceCandidates.slice(1);
+        for (const stale of olderSuperseded) {
+          if (typeof (handle as any).removeEntry === 'function') {
+            await handle.removeEntry(stale.entry.name).catch(() => {});
+          }
+          if (!supersededSet.has(stale.entry.name)) {
+            supersededSet.add(stale.entry.name);
+            supersededChanged = true;
+          }
         }
       }
     }

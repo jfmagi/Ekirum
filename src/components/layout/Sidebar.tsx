@@ -14,7 +14,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { ViewType } from '../../types';
-import { formatLocalDate } from '../../lib/dateParser';
+import { formatLocalDate, isTaskOngoing, getTaskEndDateTime } from '../../lib/dateParser';
 
 import { useShallow } from 'zustand/react/shallow';
 
@@ -62,7 +62,12 @@ export const Sidebar: React.FC = () => {
     for (const t of tasks) {
       if (t.isDeleted || t.completed) continue;
 
-      if (t.dueDate === todayStr) today++;
+      const isToday =
+        t.dueDate === todayStr ||
+        isTaskOngoing(t) ||
+        getTaskEndDateTime(t.dueDate, t.dueTime, t.duration)?.endDate === todayStr;
+
+      if (isToday) today++;
       else if (t.dueDate && t.dueDate > todayStr) calendar++;
 
       if (t.projectId) {

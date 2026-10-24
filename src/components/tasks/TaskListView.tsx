@@ -4,7 +4,12 @@ import { TaskItem } from './TaskItem';
 import { QuickAddBar } from './QuickAddBar';
 import { FilterToolbar } from './FilterToolbar';
 import { Sparkles, CheckCircle2, Edit3 } from 'lucide-react';
-import { formatLocalDate } from '../../lib/dateParser';
+import {
+  formatLocalDate,
+  isTaskOverdue,
+  isTaskOngoing,
+  getTaskEndDateTime,
+} from '../../lib/dateParser';
 
 import { useShallow } from 'zustand/react/shallow';
 
@@ -121,7 +126,9 @@ export const TaskListView: React.FC = () => {
         return (
           !task.completed &&
           (task.dueDate === todayStr ||
-            (task.dueDate && task.dueDate < todayStr) ||
+            isTaskOngoing(task) ||
+            getTaskEndDateTime(task.dueDate, task.dueTime, task.duration)?.endDate === todayStr ||
+            isTaskOverdue(task, todayStr) ||
             (!task.dueDate && task.recurrence && task.recurrence !== 'none'))
         );
       case 'upcoming':
@@ -131,7 +138,7 @@ export const TaskListView: React.FC = () => {
             : task.projectId === selectedProjectFilter;
           if (!matchProj) return false;
         }
-        return !task.completed && (!task.dueDate || task.dueDate >= todayStr);
+        return !task.completed && (!task.dueDate || !isTaskOverdue(task, todayStr));
       case 'completed':
         if (selectedProjectFilter !== 'all') {
           if (selectedProjectFilter === 'inbox') {
@@ -149,10 +156,10 @@ export const TaskListView: React.FC = () => {
 
   // Separate overdue from today's tasks if on Today view
   const overdueTasks = currentView === 'today'
-    ? filtered.filter((t) => t.dueDate && t.dueDate < todayStr)
+    ? filtered.filter((t) => isTaskOverdue(t, todayStr))
     : [];
   const activeTodayTasks = currentView === 'today'
-    ? filtered.filter((t) => !t.dueDate || t.dueDate >= todayStr)
+    ? filtered.filter((t) => !isTaskOverdue(t, todayStr))
     : filtered;
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);

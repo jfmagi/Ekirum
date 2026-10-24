@@ -1,6 +1,6 @@
 import { Task, Skill, Habit, Achievement, UserProfile, Project, LibraryItem } from '../types';
 import { INITIAL_ACHIEVEMENTS } from './seedData';
-import { formatLocalDate } from './dateParser';
+import { formatLocalDate, isTaskOngoing, getTaskEndDateTime } from './dateParser';
 import { calculateSkillLevel } from './characterMath';
 
 export interface AchievementEvaluationResult {
@@ -392,11 +392,17 @@ export function evaluateAchievements(
     if (t.isDeleted) continue;
     if (t.completed) {
       completedTasksCount++;
-      if (t.dueDate === todayStr) {
+      const endsToday = t.dueDate === todayStr || getTaskEndDateTime(t.dueDate, t.dueTime, t.duration)?.endDate === todayStr;
+      if (endsToday) {
         hasCompletedScheduledToday = true;
       }
     } else {
-      if (t.dueDate && t.dueDate <= todayStr) {
+      const isDueOrOngoingToday =
+        t.dueDate === todayStr ||
+        isTaskOngoing(t) ||
+        getTaskEndDateTime(t.dueDate, t.dueTime, t.duration)?.endDate === todayStr ||
+        (t.dueDate && t.dueDate < todayStr);
+      if (isDueOrOngoingToday) {
         activeTasksDueTodayCount++;
       }
     }
