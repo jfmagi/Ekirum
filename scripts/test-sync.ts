@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { db, initializeDatabase } from '../src/lib/db';
+import { db, initializeDatabase, getOrCreateDeviceId } from '../src/lib/db';
 import { exportAll, importAndMerge } from '../src/lib/syncEngine';
 import { syncDeviceFiles } from '../src/lib/backupService';
 
@@ -982,6 +982,160 @@ async function runTests() {
     throw new Error(`Project custom merger dropped existing description on composite merge`);
   }
   console.log('  ✓ Project custom merger preserved fields and updated name/color.');
+
+  // Test 17: Multi-file foreign device deduplication, superseded retention on forceFullResync, and no own-device self-merging
+  console.log('\nTest 17: Multi-file foreign device deduplication, superseded retention, and no own-device self-merging...');
+  const localDevId = await getOrCreateDeviceId();
+
+  // 1. Setup a scenario where local device has task-local-1 active
+  await db.tasks.put({
+    id: 'task-local-1',
+    projectId: 'proj-1',
+    title: 'Local Device Active Task',
+    priority: 'p1',
+    labels: [],
+    completed: true,
+    completedAt: '2026-10-21T10:00:00.000Z',
+    subtasks: [],
+    createdAt: '2026-10-21T09:00:00.000Z',
+    updatedAt: '2026-10-21T10:00:00.000Z',
+    isDeleted: false,
+  });
+
+  // Directory contains:
+  // - Multiple timestamped files from the SAME foreign device 'desktop-peer'
+  // - An own-device file with older/stale data (completed: false)
+  const test17Files = [
+    {
+      name: 'device-desktop-peer-1000.json',
+      lastModified: 1000,
+      content: JSON.stringify({
+        schemaVersion: 1,
+        deviceId: 'desktop-peer',
+        exportedAt: '2026-10-21T10:00:00.000Z',
+        tables: {
+          tasks: [
+            {
+              id: 'task-desktop-accumulated',
+              projectId: 'proj-1',
+              title: 'Old Desktop Version',
+              priority: 'p3',
+              labels: [],
+              completed: false,
+              subtasks: [],
+              createdAt: '2026-10-21T10:00:00.000Z',
+              updatedAt: '2026-10-21T10:00:00.000Z',
+              isDeleted: false,
+            },
+          ],
+        },
+      }),
+    },
+    {
+      name: 'device-desktop-peer-2000.json',
+      lastModified: 2000,
+      content: JSON.stringify({
+        schemaVersion: 1,
+        deviceId: 'desktop-peer',
+        exportedAt: '2026-10-21T11:00:00.000Z',
+        tables: {
+          tasks: [
+            {
+              id: 'task-desktop-accumulated',
+              projectId: 'proj-1',
+              title: 'Newest Desktop Version',
+              priority: 'p1',
+              labels: [],
+              completed: true,
+              completedAt: '2026-10-21T11:00:00.000Z',
+              subtasks: [],
+              createdAt: '2026-10-21T10:00:00.000Z',
+              updatedAt: '2026-10-21T11:00:00.000Z',
+              isDeleted: false,
+            },
+          ],
+        },
+      }),
+    },
+    {
+      name: `device-${localDevId}-9999.json`,
+      lastModified: 9999,
+      content: JSON.stringify({
+        schemaVersion: 1,
+        deviceId: localDevId,
+        exportedAt: '2026-10-21T12:00:00.000Z',
+        tables: {
+          tasks: [
+            {
+              id: 'task-local-1',
+              projectId: 'proj-1',
+              title: 'Stale Local State From Own File',
+              priority: 'p3',
+              labels: [],
+              completed: false, // Stale state!
+              subtasks: [],
+              createdAt: '2026-10-21T09:00:00.000Z',
+              updatedAt: '2026-10-21T12:00:00.000Z',
+              isDeleted: false,
+            },
+          ],
+        },
+      }),
+    },
+  ];
+
+  const test17Handle = {
+    name: 'test-sync-folder',
+    removeEntry: async (_name: string) => {},
+    values: async function* () {
+      for (const f of test17Files) {
+        yield {
+          kind: 'file',
+          name: f.name,
+          getFile: async () => ({
+            name: f.name,
+            size: f.content.length,
+            lastModified: f.lastModified,
+            text: async () => f.content,
+          }),
+        };
+      }
+    },
+  } as any;
+
+  // Run syncDeviceFiles with forceFullResync = true
+  const syncPass1 = await syncDeviceFiles(test17Handle, true, true);
+  if (!syncPass1.mergeResult?.success) {
+    throw new Error(`syncDeviceFiles failed on pass 1: ${syncPass1.mergeResult?.error}`);
+  }
+
+  // 1. Check that own-device file was NOT merged into local DB:
+  const test17LocalTask = await db.tasks.get('task-local-1');
+  if (!test17LocalTask?.completed || test17LocalTask?.title !== 'Local Device Active Task') {
+    throw new Error(`Own device file overwrote active local task: got title="${test17LocalTask?.title}", completed=${test17LocalTask?.completed}`);
+  }
+
+  // 2. Check that foreign task adopted the NEWEST version:
+  const test17ForeignTask = await db.tasks.get('task-desktop-accumulated');
+  if (!test17ForeignTask?.completed || test17ForeignTask?.title !== 'Newest Desktop Version') {
+    throw new Error(`Foreign task did not adopt newest version: got title="${test17ForeignTask?.title}"`);
+  }
+
+  // 3. Check supersededDeviceFiles has 'device-desktop-peer-1000.json'
+  const supersededRecord1 = await db.settings.get('supersededDeviceFiles');
+  const supersededList1: string[] = supersededRecord1?.value || [];
+  if (!supersededList1.includes('device-desktop-peer-1000.json')) {
+    throw new Error(`Older foreign file was not marked superseded: ${JSON.stringify(supersededList1)}`);
+  }
+
+  // 4. Run second pass with forceFullResync = true: verify superseded files are NOT wiped from supersededDeviceFiles!
+  await syncDeviceFiles(test17Handle, true, true);
+  const supersededRecord2 = await db.settings.get('supersededDeviceFiles');
+  const supersededList2: string[] = supersededRecord2?.value || [];
+  if (!supersededList2.includes('device-desktop-peer-1000.json')) {
+    throw new Error(`Older foreign file was un-superseded during forceFullResync! Got: ${JSON.stringify(supersededList2)}`);
+  }
+  console.log('  ✓ Stale foreign files kept in supersededSet, newest foreign version adopted, own-device file never self-merged.');
 
   console.log('\n🎉 ALL TESTS PASSED! Dexie schema, migrations, exportAll, and LWW importAndMerge are verified!\n');
 }

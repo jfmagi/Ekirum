@@ -120,7 +120,7 @@ export const App: React.FC = () => {
     };
   }, [initStorage, triggerBackupAndSync, refreshBackupStatus]);
 
-  // Automatically request directory handle permission on the user's first tap/key press
+  // Automatically request directory handle permission on the user's first tap/touch/key press
   // when a sync folder is configured in IndexedDB but browser session permission is 'prompt'
   useEffect(() => {
     if (!backupStatus?.folderName || backupStatus.permission !== 'prompt') return;
@@ -128,16 +128,20 @@ export const App: React.FC = () => {
     const handleFirstGesture = () => {
       if (triggered) return;
       triggered = true;
+      cleanup();
+      void reconnectBackupFolder();
+    };
+    const cleanup = () => {
       window.removeEventListener('click', handleFirstGesture);
       window.removeEventListener('keydown', handleFirstGesture);
-      void reconnectBackupFolder();
+      window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('touchstart', handleFirstGesture);
     };
     window.addEventListener('click', handleFirstGesture, { once: true, passive: true });
     window.addEventListener('keydown', handleFirstGesture, { once: true, passive: true });
-    return () => {
-      window.removeEventListener('click', handleFirstGesture);
-      window.removeEventListener('keydown', handleFirstGesture);
-    };
+    window.addEventListener('pointerdown', handleFirstGesture, { once: true, passive: true });
+    window.addEventListener('touchstart', handleFirstGesture, { once: true, passive: true });
+    return cleanup;
   }, [backupStatus?.folderName, backupStatus?.permission, reconnectBackupFolder]);
 
   // Global Keyboard shortcuts with strict modifier protection

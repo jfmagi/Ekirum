@@ -313,7 +313,7 @@ export interface EkirumStore {
   syncWithDatabase: () => Promise<void>;
   refreshBackupStatus: () => Promise<void>;
   selectBackupFolder: () => Promise<{ success: boolean; name?: string; error?: string }>;
-  reconnectBackupFolder: () => Promise<boolean>;
+  reconnectBackupFolder: () => Promise<BackupAndSyncResult>;
   triggerBackupAndSync: (force?: boolean, forceFullResync?: boolean) => Promise<BackupAndSyncResult>;
 
   // Actions - Manual Export & Merge
@@ -752,15 +752,15 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         return res;
       },
 
-      reconnectBackupFolder: async () => {
+      reconnectBackupFolder: async (): Promise<BackupAndSyncResult> => {
         set({ isSyncing: true });
-        const ok = await reconnectBackupDirectory();
-        if (ok) {
+        const res = await reconnectBackupDirectory();
+        if (res.success) {
           await get().syncWithDatabase();
         }
         await get().refreshBackupStatus();
         set({ isSyncing: false });
-        return ok;
+        return res;
       },
 
       triggerBackupAndSync: async (force = true, forceFullResync = false) => {

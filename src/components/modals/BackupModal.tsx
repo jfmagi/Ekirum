@@ -236,12 +236,18 @@ export const BackupModal: React.FC = () => {
 
   // 7. Reconnect Folder
   const handleReconnect = async () => {
-    const ok = await reconnectBackupFolder();
-    if (ok) {
-      setActionMessage('Folder permissions reconnected and synced.');
-      setTimeout(() => setActionMessage(null), 3000);
+    const res = await reconnectBackupFolder();
+    if (res.success) {
+      if (res.totalChanges > 0) {
+        setActionMessage(`Folder reconnected and synced (${res.totalChanges} update${res.totalChanges === 1 ? '' : 's'} applied).`);
+      } else if (res.filesProcessed > 0) {
+        setActionMessage('Folder reconnected — already up to date.');
+      } else {
+        setActionMessage('Folder permissions reconnected and verified.');
+      }
+      setTimeout(() => setActionMessage(null), 3500);
     } else {
-      setActionMessage('Could not reconnect folder. Please re-select folder.');
+      setActionMessage(res.error || 'Could not reconnect folder. Please re-select folder.');
       setTimeout(() => setActionMessage(null), 3500);
     }
   };

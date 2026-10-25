@@ -214,16 +214,22 @@ export async function getBackupStatus(): Promise<BackupStatus> {
         Array.isArray(supersededRecord?.value) ? supersededRecord.value : []
       );
       const entries = await getDirectoryEntries(handle);
+      const foreignDeviceIds = new Set<string>();
       for (const entry of entries) {
         if (entry.kind === 'file') {
           const c = classifySyncEntry(entry.name, deviceId);
           if (c.kind === 'device' && !c.isArtifactToClean && !supersededSet.has(entry.name)) {
-            foreignDeviceCount++;
+            const match = entry.name.match(/^device-(.+?)(?:-\d{10,15})?\.json$/i);
+            const devId = match ? match[1] : entry.name;
+            if (devId && devId.toLowerCase() !== deviceId.toLowerCase()) {
+              foreignDeviceIds.add(devId);
+            }
           } else if (c.kind === 'snapshot' && !c.isArtifactToClean) {
             dailyBackupCount++;
           }
         }
       }
+      foreignDeviceCount = foreignDeviceIds.size;
     } catch {
       // ignore
     }
@@ -287,21 +293,31 @@ export async function pickBackupDirectory(): Promise<{ success: boolean; name?: 
 /**
  * Prompt user to reconnect permission for the existing directory handle.
  */
-export async function reconnectBackupDirectory(): Promise<boolean> {
+export async function reconnectBackupDirectory(): Promise<BackupAndSyncResult> {
   const handle = await getSavedDirectoryHandle();
-  if (!handle) return false;
+  if (!handle) {
+    return { success: false, totalChanges: 0, filesProcessed: 0, error: 'No backup folder configured.' };
+  }
 
   const perm = await verifyHandlePermission(handle, true);
   if (perm === 'granted') {
     await db.settings.delete('deviceSyncMtimes');
     await db.settings.delete('lastSyncAt');
     // Perform catch-up sync and backup
-    await syncDeviceFiles(handle, true, true);
-    await writeDeviceFile(handle);
+    const syncRes = await syncDeviceFiles(handle, true, true);
+    const deviceWriteOk = await writeDeviceFile(handle);
     await performDailyBackup(handle, false);
-    return true;
+    const totalChanges = syncRes.mergeResult?.totalChanges || 0;
+    const filesProcessed = syncRes.filesProcessed || 0;
+    const isSuccess = Boolean(syncRes.mergeResult && syncRes.mergeResult.success) && deviceWriteOk;
+    return {
+      success: isSuccess,
+      totalChanges,
+      filesProcessed,
+      error: syncRes.mergeResult?.error,
+    };
   }
-  return false;
+  return { success: false, totalChanges: 0, filesProcessed: 0, error: 'Folder permission was not granted.' };
 }
 
 /**
@@ -569,6 +585,7 @@ export interface BackupAndSyncResult {
   success: boolean;
   totalChanges: number;
   filesProcessed: number;
+  error?: string;
 }
 
 export interface SyncClassification {
@@ -601,7 +618,7 @@ function classifySyncEntry(
   // Own primary device file (legacy device-<id>.json or write-once device-<id>-<timestamp>.json)
   if (
     lower === ownCanonicalName ||
-    (lower.startsWith(`${ownPrefix}-`) && /^device-[a-z0-9-]+-\d{10,15}\.json$/.test(lower))
+    (lower.startsWith(`${ownPrefix}-`) && /^device-[a-z0-9_-]+-\d{10,15}\.json$/.test(lower))
   ) {
     return { shouldProcess: false, isArtifactToClean: false, kind: 'own-device' };
   }
@@ -706,13 +723,14 @@ export async function syncDeviceFiles(
       }
 
       if (classification.kind === 'own-device') {
-        if (forceFullResync) {
-          candidatesToExamine.push({
-            entry,
-            isArtifactToClean: false,
-            isSnapshot: false,
-            isCanonicalForeignDevice: false,
-          });
+        // Local IndexedDB is already the authoritative state of truth for the local device.
+        // We never re-merge our own device files back into the local database.
+        continue;
+      }
+
+      if (supersededSet.has(entry.name)) {
+        if (typeof (handle as any).removeEntry === 'function') {
+          await handle.removeEntry(entry.name).catch(() => {});
         }
         continue;
       }
@@ -768,9 +786,9 @@ export async function syncDeviceFiles(
         const exportedMs = currentExportedAt ? Date.parse(currentExportedAt) : NaN;
         const sortTime = !Number.isNaN(exportedMs) ? exportedMs : currentMtime;
 
-        // If a snapshot originated from the local device itself, skip it during normal sync
-        // (during forceFullResync, we still evaluate it in case local DB was reset or behind).
-        if (isSnapshot && data?.deviceId === localDeviceId && !forceFullResync) {
+        // If a file originated from the local device itself, skip it!
+        // Local IndexedDB is already the authoritative state of truth for the local device.
+        if (data?.deviceId === localDeviceId) {
           syncMtimes[entry.name] = {
             mtime: currentMtime,
             size: currentSize,
@@ -793,11 +811,6 @@ export async function syncDeviceFiles(
           currentMtime === prevMtime &&
           currentSize === prevSize &&
           currentExportedAt === prevExportedAt;
-
-        if (!isUnchanged && supersededSet.has(entry.name)) {
-          supersededSet.delete(entry.name);
-          supersededChanged = true;
-        }
 
         parsedCandidates.push({
           entry,
@@ -846,6 +859,10 @@ export async function syncDeviceFiles(
 
       // Skip older historical snapshots when a strictly newer full export from the same deviceId exists in the folder
       if (isSnapshot && !isArtifactToClean && devId && sortTime < newestForDevice) {
+        if (!supersededSet.has(entry.name)) {
+          supersededSet.add(entry.name);
+          supersededChanged = true;
+        }
         syncMtimes[entry.name] = {
           mtime: currentMtime,
           size: currentSize,
