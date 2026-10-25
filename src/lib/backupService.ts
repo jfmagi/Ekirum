@@ -16,6 +16,7 @@ export interface BackupStatus {
   deviceId: string;
   foreignDeviceCount?: number;
   dailyBackupCount?: number;
+  lastSyncReport?: SyncReport | null;
 }
 
 /**
@@ -252,6 +253,9 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     }
   }
 
+  const lastReportRecord = await db.settings.get('lastSyncReport');
+  const lastSyncReport = (lastReportRecord?.value as SyncReport) || null;
+
   return {
     hasFileSystemSupport: true,
     folderName: handle.name || folderName,
@@ -262,6 +266,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     deviceId,
     foreignDeviceCount,
     dailyBackupCount,
+    lastSyncReport,
   };
 }
 
@@ -695,13 +700,45 @@ function classifySyncEntry(
   return { shouldProcess: false, isArtifactToClean: false, kind: 'none' };
 }
 
+export interface SyncReport {
+  at: string;
+  deviceId: string;
+  entryCount: number;
+  items: { name: string; result: string }[];
+  error?: string;
+  ran: boolean;
+}
+
 /**
  * Scan the shared backup folder for other device-<id>.json files and backup snapshots and merge them in.
+ * Every non-throttled pass stores a per-file report under settings key 'lastSyncReport'
+ * so the user can see exactly what the device saw in the folder and what happened to each file.
  */
 export async function syncDeviceFiles(
   handle: FileSystemDirectoryHandle,
   force = false,
   forceFullResync = false
+): Promise<{ filesProcessed: number; mergeResult?: MergeResult }> {
+  const report: SyncReport = {
+    at: new Date().toISOString(),
+    deviceId: '',
+    entryCount: 0,
+    items: [],
+    ran: false,
+  };
+  const res = await syncDeviceFilesInner(handle, force, forceFullResync, report);
+  if (report.ran) {
+    if (res.mergeResult?.error) report.error = res.mergeResult.error;
+    await db.settings.put({ key: 'lastSyncReport', value: report }).catch(() => {});
+  }
+  return res;
+}
+
+async function syncDeviceFilesInner(
+  handle: FileSystemDirectoryHandle,
+  force: boolean,
+  forceFullResync: boolean,
+  report: SyncReport
 ): Promise<{ filesProcessed: number; mergeResult?: MergeResult }> {
   try {
     const now = Date.now();
@@ -722,10 +759,12 @@ export async function syncDeviceFiles(
       }
     }
 
+    report.ran = true;
     const localDeviceId = await getOrCreateDeviceId();
     let totalMergedChanges = 0;
     let filesProcessed = 0;
     let filesFailed = 0;
+    report.deviceId = localDeviceId;
 
     const [syncMtimesRecord, supersededRecord] = await Promise.all([
       forceFullResync ? Promise.resolve(null) : db.settings.get('deviceSyncMtimes'),
@@ -744,6 +783,7 @@ export async function syncDeviceFiles(
     const MAX_DEVICE_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 
     const entries = await getDirectoryEntries(handle);
+    report.entryCount = entries.length;
 
     const candidatesToExamine: {
       entry: FileSystemHandle;
@@ -757,6 +797,7 @@ export async function syncDeviceFiles(
       const classification = classifySyncEntry(entry.name, localDeviceId);
 
       if (classification.kind === 'own-artifact') {
+        report.items.push({ name: entry.name, result: 'leftover from this device (cleaned up)' });
         if (typeof (handle as any).removeEntry === 'function') {
           await handle.removeEntry(entry.name).catch(() => {});
         }
@@ -766,11 +807,14 @@ export async function syncDeviceFiles(
       if (classification.kind === 'own-device') {
         // Local IndexedDB is already the authoritative state of truth for the local device.
         // We never re-merge our own device files back into the local database.
+        report.items.push({ name: entry.name, result: 'this device\'s own file (skipped)' });
         continue;
       }
 
       if (!forceFullResync && supersededSet.has(entry.name)) {
-        if (typeof (handle as any).removeEntry === 'function') {
+        report.items.push({ name: entry.name, result: 'older copy (skipped)' });
+        // Only delete superseded device files; never delete daily backup snapshots.
+        if (entry.name.toLowerCase().startsWith('device-') && typeof (handle as any).removeEntry === 'function') {
           await handle.removeEntry(entry.name).catch(() => {});
         }
         continue;
@@ -808,6 +852,7 @@ export async function syncDeviceFiles(
         // Reject files exceeding max safe payload size
         if (typeof file.size === 'number' && file.size > MAX_DEVICE_FILE_SIZE) {
           console.warn(`Device file ${entry.name} exceeds 25 MB limit (${file.size} bytes). Skipping.`);
+          report.items.push({ name: entry.name, result: `FAILED: file too large (${file.size} bytes)` });
           filesFailed++;
           continue;
         }
@@ -815,6 +860,12 @@ export async function syncDeviceFiles(
         const text = await file.text();
         if (text.length > MAX_DEVICE_FILE_SIZE) {
           console.warn(`Device file ${entry.name} content exceeds 25 MB limit. Skipping.`);
+          report.items.push({ name: entry.name, result: 'FAILED: content too large' });
+          filesFailed++;
+          continue;
+        }
+        if (text.length === 0) {
+          report.items.push({ name: entry.name, result: 'FAILED: file is empty (0 bytes) on this device' });
           filesFailed++;
           continue;
         }
@@ -830,6 +881,7 @@ export async function syncDeviceFiles(
         // If a file originated from the local device itself, skip it!
         // Local IndexedDB is already the authoritative state of truth for the local device.
         if (data?.deviceId === localDeviceId) {
+          report.items.push({ name: entry.name, result: 'written by this same device ID (skipped)' });
           syncMtimes[entry.name] = {
             mtime: currentMtime,
             size: currentSize,
@@ -865,8 +917,12 @@ export async function syncDeviceFiles(
           sortTime,
           shouldMerge: !isUnchanged,
         });
-      } catch (e) {
+      } catch (e: any) {
         filesFailed++;
+        report.items.push({
+          name: entry.name,
+          result: `FAILED to read: ${e?.name || 'Error'}: ${e?.message || String(e)}`,
+        });
         if (isArtifactToClean && typeof (handle as any).removeEntry === 'function') {
           await handle.removeEntry(entry.name).catch(() => {});
         }
@@ -893,13 +949,17 @@ export async function syncDeviceFiles(
     }
 
     for (const candidate of parsedCandidates) {
-      if (!candidate.shouldMerge) continue;
+      if (!candidate.shouldMerge) {
+        report.items.push({ name: candidate.entry.name, result: 'unchanged since last sync (skipped)' });
+        continue;
+      }
       const { entry, data, isArtifactToClean, isSnapshot, currentMtime, currentSize, currentExportedAt, sortTime } = candidate;
       const devId = typeof data?.deviceId === 'string' && data.deviceId ? data.deviceId : '';
       const newestForDevice = devId ? (newestSortTimeByDevice.get(devId) ?? sortTime) : sortTime;
 
       // Skip older historical snapshots when a strictly newer full export from the same deviceId exists in the folder
       if (isSnapshot && !isArtifactToClean && devId && sortTime < newestForDevice) {
+        report.items.push({ name: entry.name, result: 'older snapshot, newer file from same device exists (skipped)' });
         if (!supersededSet.has(entry.name)) {
           supersededSet.add(entry.name);
           supersededChanged = true;
@@ -916,6 +976,10 @@ export async function syncDeviceFiles(
       try {
         const mergeRes = await importAndMerge(data);
         if (mergeRes.success) {
+          report.items.push({
+            name: entry.name,
+            result: `merged (${mergeRes.totalChanges} change${mergeRes.totalChanges === 1 ? '' : 's'})`,
+          });
           filesProcessed++;
           totalMergedChanges += mergeRes.totalChanges;
           if (isArtifactToClean && typeof (handle as any).removeEntry === 'function') {
@@ -931,10 +995,18 @@ export async function syncDeviceFiles(
           mtimesChanged = true;
         } else {
           filesFailed++;
+          report.items.push({
+            name: entry.name,
+            result: `FAILED merge: ${mergeRes.error || 'Unknown merge error'}`,
+          });
           console.warn(`Error merging device sync file ${entry.name}:`, mergeRes.error);
         }
-      } catch (e) {
+      } catch (e: any) {
         filesFailed++;
+        report.items.push({
+          name: entry.name,
+          result: `FAILED merge exception: ${e?.message || String(e)}`,
+        });
         console.warn(`Error merging device sync file ${entry.name}:`, e);
       }
     }

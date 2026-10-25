@@ -504,6 +504,28 @@ export const BackupModal: React.FC = () => {
                   </div>
                 )}
 
+                {/* Last Sync Diagnostics */}
+                {backupStatus?.lastSyncReport && (
+                  <div className="p-2.5 rounded-mac bg-stone-100/80 border border-stone-200 text-[11px] font-mono space-y-1">
+                    <div className="flex items-center justify-between text-stone-600 font-semibold">
+                      <span>Folder Scan: {backupStatus.lastSyncReport.entryCount} total files inspected</span>
+                      <span className="text-[10px] text-stone-600">ID: {backupStatus.lastSyncReport.deviceId?.slice(0, 8)}…</span>
+                    </div>
+                    {backupStatus.lastSyncReport.items.length > 0 ? (
+                      <ul className="space-y-0.5 max-h-32 overflow-y-auto pt-1 text-stone-600 divide-y divide-stone-200/50">
+                        {backupStatus.lastSyncReport.items.map((item, idx) => (
+                          <li key={idx} className="pt-0.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                            <span className="truncate max-w-[280px]" title={item.name}>{item.name}</span>
+                            <span className="text-stone-700 font-medium text-[10px]">{item.result}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="text-stone-600 text-[10px] italic">Folder is completely empty or no matching files found.</div>
+                    )}
+                  </div>
+                )}
+
                 {/* Simple Sync Explanation */}
                 <div className="pt-2 border-t border-stone-200/70 text-[11px] text-stone-600 leading-relaxed font-sans space-y-1">
                   <div>
