@@ -492,9 +492,13 @@ const fullSkill: Skill = {
 };
 
 const todayDateObj = new Date();
+const yestDateObj = new Date(todayDateObj);
+yestDateObj.setDate(todayDateObj.getDate() - 1);
+const twoDaysAgoDateObj = new Date(todayDateObj);
+twoDaysAgoDateObj.setDate(todayDateObj.getDate() - 2);
 const habitDateToday = formatLocalDate(todayDateObj);
-const habitDateYest = formatLocalDate(new Date(todayDateObj.getTime() - 24 * 3600 * 1000));
-const habitDate2DaysAgo = formatLocalDate(new Date(todayDateObj.getTime() - 48 * 3600 * 1000));
+const habitDateYest = formatLocalDate(yestDateObj);
+const habitDate2DaysAgo = formatLocalDate(twoDaysAgoDateObj);
 const habitFidelityDates = [habitDate2DaysAgo, habitDateYest, habitDateToday];
 
 const fullHabit: Habit = {

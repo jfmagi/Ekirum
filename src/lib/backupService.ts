@@ -307,11 +307,12 @@ export async function reconnectBackupDirectory(): Promise<BackupAndSyncResult> {
     await performDailyBackup(handle, false);
     const totalChanges = syncRes.mergeResult?.totalChanges || 0;
     const filesProcessed = syncRes.filesProcessed || 0;
-    const isSuccess = Boolean(syncRes.mergeResult && syncRes.mergeResult.success) && deviceWriteOk;
+    const syncSuccess = Boolean(syncRes.mergeResult && syncRes.mergeResult.success);
     return {
-      success: isSuccess,
+      success: syncSuccess,
       totalChanges,
       filesProcessed,
+      deviceWriteOk,
       error: syncRes.mergeResult?.error,
     };
   }
@@ -385,11 +386,19 @@ export async function writeDeviceFile(
 
     const jsonContent = JSON.stringify(backupData, null, 2);
     const newFileName = `device-${deviceId}-${Date.now()}.json`;
-    await atomicWriteFile(handle, newFileName, jsonContent);
+    let writtenFileName = newFileName;
+    try {
+      await atomicWriteFile(handle, newFileName, jsonContent);
+    } catch (timestampedWriteErr) {
+      // Fallback for restricted Android SAF providers where creating new timestamped files may fail
+      const canonicalFileName = `device-${deviceId}.json`;
+      await atomicWriteFile(handle, canonicalFileName, jsonContent);
+      writtenFileName = canonicalFileName;
+    }
 
     if (typeof (handle as any).removeEntry === 'function') {
       for (const oldEntry of ownEntries) {
-        if (oldEntry.name !== newFileName) {
+        if (oldEntry.name !== writtenFileName) {
           await handle.removeEntry(oldEntry.name).catch(() => {});
         }
       }
@@ -583,6 +592,7 @@ export interface BackupAndSyncResult {
   success: boolean;
   totalChanges: number;
   filesProcessed: number;
+  deviceWriteOk?: boolean;
   error?: string;
 }
 
@@ -989,8 +999,15 @@ async function executeBackupAndSyncPass(force: boolean, forceFullResync = false)
     // 3. Daily backup snapshot (if >=24h or forced)
     await performDailyBackup(handle, force);
 
-    const isSuccess = Boolean(syncRes.mergeResult && syncRes.mergeResult.success) && deviceWriteOk;
-    return { success: isSuccess, totalChanges, filesProcessed };
+    const syncSuccess = Boolean(syncRes.mergeResult && syncRes.mergeResult.success);
+    const isSuccess = syncSuccess && (deviceWriteOk || filesProcessed > 0);
+    return {
+      success: isSuccess,
+      totalChanges,
+      filesProcessed,
+      deviceWriteOk,
+      error: syncRes.mergeResult?.error,
+    };
   } catch (err) {
     console.warn('maybeBackupAndSync error:', err);
     return { success: false, totalChanges: 0, filesProcessed: 0 };
@@ -1019,6 +1036,7 @@ export async function maybeBackupAndSync(force = false, forceFullResync = false)
     let aggregatedSuccess = false;
     let aggregatedChanges = 0;
     let aggregatedFiles = 0;
+    let lastDeviceWriteOk: boolean | undefined = undefined;
     let currentForce = force;
     let currentFullResync = forceFullResync;
 
@@ -1030,6 +1048,9 @@ export async function maybeBackupAndSync(force = false, forceFullResync = false)
         aggregatedSuccess = res.success;
         aggregatedChanges += res.totalChanges;
         aggregatedFiles += res.filesProcessed;
+        if (res.deviceWriteOk !== undefined) {
+          lastDeviceWriteOk = res.deviceWriteOk;
+        }
 
         if (pendingSyncForce !== null || pendingSyncFullResync !== null) {
           currentForce = Boolean(pendingSyncForce);
@@ -1042,6 +1063,7 @@ export async function maybeBackupAndSync(force = false, forceFullResync = false)
         success: aggregatedSuccess,
         totalChanges: aggregatedChanges,
         filesProcessed: aggregatedFiles,
+        deviceWriteOk: lastDeviceWriteOk,
       };
     } finally {
       activeSyncPromise = null;
