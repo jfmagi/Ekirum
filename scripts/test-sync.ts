@@ -1137,6 +1137,88 @@ async function runTests() {
   }
   console.log('  ✓ Stale foreign files kept in supersededSet, newest foreign version adopted, own-device file never self-merged.');
 
+  // Test 18: Substantive vs timestamp-only change counting & un-superseding rescue
+  console.log('\nTest 18: Substantive equality prevents false-positive change counts & rescues un-superseded files...');
+  const existingLocalTask = await db.tasks.get('task-desktop-accumulated');
+  if (!existingLocalTask) throw new Error('task-desktop-accumulated not found');
+
+  // 18a: Incoming task has identical business data, only newer updatedAt
+  const newerSameContentTask = {
+    ...existingLocalTask,
+    updatedAt: new Date(Date.now() + 5000).toISOString(),
+  };
+
+  const mergeResSubstantive = await importAndMerge({
+    schemaVersion: 1,
+    tables: {
+      tasks: [newerSameContentTask],
+    },
+  });
+
+  if (mergeResSubstantive.totalChanges !== 0 || (mergeResSubstantive.stats.tasks?.updated || 0) !== 0) {
+    throw new Error(`Timestamp-only change was counted as substantive update! totalChanges=${mergeResSubstantive.totalChanges}, updated=${mergeResSubstantive.stats.tasks?.updated}`);
+  }
+  const dbTaskAfterTimestamp = await db.tasks.get('task-desktop-accumulated');
+  if (dbTaskAfterTimestamp?.updatedAt !== newerSameContentTask.updatedAt) {
+    throw new Error(`Local DB timestamp was not advanced silently: ${dbTaskAfterTimestamp?.updatedAt}`);
+  }
+  console.log('  ✓ Timestamp-only update advances updatedAt silently with totalChanges = 0 (no false-positive toast).');
+
+  // 18b: Rescuing un-superseded foreign file when newer duplicate is gone
+  // Put 'device-desktop-peer-1000.json' as the ONLY file in the folder
+  const test18Handle = {
+    name: 'test-sync-folder-rescue',
+    removeEntry: async (_name: string) => {},
+    values: async function* () {
+      yield {
+        kind: 'file',
+        name: 'device-desktop-peer-1000.json',
+        getFile: async () => ({
+          name: 'device-desktop-peer-1000.json',
+          size: 100,
+          lastModified: 1000,
+          text: async () => JSON.stringify({
+            schemaVersion: 1,
+            deviceId: 'desktop-peer',
+            exportedAt: '2026-10-21T10:00:00.000Z',
+            tables: {
+              tasks: [
+                {
+                  id: 'task-rescued-from-superseded',
+                  projectId: 'proj-1',
+                  title: 'Rescued Task',
+                  priority: 'p1',
+                  labels: [],
+                  completed: true,
+                  subtasks: [],
+                  createdAt: '2026-10-21T10:00:00.000Z',
+                  updatedAt: '2026-10-21T10:00:00.000Z',
+                  isDeleted: false,
+                },
+              ],
+            },
+          }),
+        }),
+      };
+    },
+  } as any;
+
+  // Run full resync: since 'device-desktop-peer-1000.json' is now the ONLY file for desktop-peer, it must be un-superseded and merged!
+  const rescueRes = await syncDeviceFiles(test18Handle, true, true);
+  if (!rescueRes.mergeResult?.success || rescueRes.filesProcessed !== 1) {
+    throw new Error(`Failed to process un-superseded file: processed=${rescueRes.filesProcessed}`);
+  }
+  const rescuedTask = await db.tasks.get('task-rescued-from-superseded');
+  if (!rescuedTask || rescuedTask.title !== 'Rescued Task') {
+    throw new Error('Rescued task was not merged from formerly superseded file.');
+  }
+  const supersededAfterRescue = await db.settings.get('supersededDeviceFiles');
+  const supersededListAfterRescue: string[] = supersededAfterRescue?.value || [];
+  if (supersededListAfterRescue.includes('device-desktop-peer-1000.json')) {
+    throw new Error('device-desktop-peer-1000.json was not removed from supersededDeviceFiles after rescue!');
+  }
+  console.log('  ✓ Single foreign device file un-superseded and successfully merged on forceFullResync.');
+
   console.log('\n🎉 ALL TESTS PASSED! Dexie schema, migrations, exportAll, and LWW importAndMerge are verified!\n');
 }
 

@@ -52,6 +52,7 @@ export async function saveDirectoryHandle(handle: FileSystemDirectoryHandle): Pr
   });
   await db.settings.delete('deviceSyncMtimes');
   await db.settings.delete('lastSyncAt');
+  await db.settings.delete('supersededDeviceFiles');
 }
 
 /**
@@ -209,16 +210,12 @@ export async function getBackupStatus(): Promise<BackupStatus> {
   let dailyBackupCount = 0;
   if (permission === 'granted') {
     try {
-      const supersededRecord = await db.settings.get('supersededDeviceFiles');
-      const supersededSet = new Set<string>(
-        Array.isArray(supersededRecord?.value) ? supersededRecord.value : []
-      );
       const entries = await getDirectoryEntries(handle);
       const foreignDeviceIds = new Set<string>();
       for (const entry of entries) {
         if (entry.kind === 'file') {
           const c = classifySyncEntry(entry.name, deviceId);
-          if (c.kind === 'device' && !c.isArtifactToClean && !supersededSet.has(entry.name)) {
+          if (c.kind === 'device' && !c.isArtifactToClean) {
             const match = entry.name.match(/^device-(.+?)(?:-\d{10,15})?\.json$/i);
             const devId = match ? match[1] : entry.name;
             if (devId && devId.toLowerCase() !== deviceId.toLowerCase()) {
@@ -277,7 +274,7 @@ export async function pickBackupDirectory(): Promise<{ success: boolean; name?: 
     // 1. Immediately merge foreign devices and snapshots from the selected folder
     await syncDeviceFiles(handle, true, true);
     // 2. Export local state to device-<id>.json so other devices can sync our data
-    await writeDeviceFile(handle);
+    await writeDeviceFile(handle, true);
     // 3. Create initial daily backup snapshot
     await performDailyBackup(handle, true);
 
@@ -303,9 +300,10 @@ export async function reconnectBackupDirectory(): Promise<BackupAndSyncResult> {
   if (perm === 'granted') {
     await db.settings.delete('deviceSyncMtimes');
     await db.settings.delete('lastSyncAt');
+    await db.settings.delete('supersededDeviceFiles');
     // Perform catch-up sync and backup
     const syncRes = await syncDeviceFiles(handle, true, true);
-    const deviceWriteOk = await writeDeviceFile(handle);
+    const deviceWriteOk = await writeDeviceFile(handle, true);
     await performDailyBackup(handle, false);
     const totalChanges = syncRes.mergeResult?.totalChanges || 0;
     const filesProcessed = syncRes.filesProcessed || 0;
@@ -687,7 +685,7 @@ export async function syncDeviceFiles(
     let filesFailed = 0;
 
     const [syncMtimesRecord, supersededRecord] = await Promise.all([
-      db.settings.get('deviceSyncMtimes'),
+      forceFullResync ? Promise.resolve(null) : db.settings.get('deviceSyncMtimes'),
       db.settings.get('supersededDeviceFiles'),
     ]);
     const syncMtimes: Record<string, any> =
@@ -728,7 +726,7 @@ export async function syncDeviceFiles(
         continue;
       }
 
-      if (supersededSet.has(entry.name)) {
+      if (!forceFullResync && supersededSet.has(entry.name)) {
         if (typeof (handle as any).removeEntry === 'function') {
           await handle.removeEntry(entry.name).catch(() => {});
         }
@@ -912,14 +910,14 @@ export async function syncDeviceFiles(
       }
 
       for (const [, deviceCandidates] of foreignByDeviceId) {
-        if (deviceCandidates.length <= 1) continue;
         // Sort descending by sortTime: newest first
         deviceCandidates.sort((a, b) => b.sortTime - a.sortTime);
         const newest = deviceCandidates[0];
-        if (supersededSet.has(newest.entry.name)) {
+        if (newest && supersededSet.has(newest.entry.name)) {
           supersededSet.delete(newest.entry.name);
           supersededChanged = true;
         }
+        if (deviceCandidates.length <= 1) continue;
         const olderSuperseded = deviceCandidates.slice(1);
         for (const stale of olderSuperseded) {
           if (typeof (handle as any).removeEntry === 'function') {

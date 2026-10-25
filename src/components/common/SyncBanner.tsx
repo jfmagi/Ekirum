@@ -64,7 +64,7 @@ export const SyncBanner: React.FC = () => {
           </button>
         ) : (
           <button
-            onClick={() => triggerBackupAndSync(true)}
+            onClick={() => triggerBackupAndSync(true, true)}
             disabled={isSyncing}
             className="min-h-[34px] px-3 py-1.5 text-xs font-medium text-white bg-amber-700 hover:bg-amber-800 rounded-mac shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
           >

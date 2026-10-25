@@ -161,7 +161,7 @@ export function mergeUserProfiles(
   let dailyXpEarned = isIncomingNewer ? incoming.dailyXpEarned : existing.dailyXpEarned;
   if (existing.dailyXpDate && incoming.dailyXpDate && existing.dailyXpDate === incoming.dailyXpDate) {
     dailyXpDate = existing.dailyXpDate;
-    dailyXpEarned = Math.max(existing.dailyXpEarned || 0, incoming.dailyXpEarned || 0);
+    dailyXpEarned = Math.min(500, Math.max(existing.dailyXpEarned || 0, incoming.dailyXpEarned || 0));
   }
 
   const result: UserProfile = {
@@ -179,7 +179,7 @@ export function mergeUserProfiles(
 
   // If merged state took fields from both sides (differs from both existing and incoming),
   // advance updatedAt to now so peer devices immediately recognize and adopt the composite state.
-  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
     result.updatedAt = new Date().toISOString();
   }
 
@@ -224,7 +224,7 @@ export function mergeAchievements(
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 
-  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
     result.updatedAt = new Date().toISOString();
   }
 
@@ -251,7 +251,7 @@ export function mergeLibraryItems(
       xpEarned: xpAwarded ? xpEarned : base.xpEarned,
       updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
     };
-    if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+    if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
       result.updatedAt = new Date().toISOString();
     }
     return result;
@@ -277,7 +277,7 @@ export function mergeLibraryItems(
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 
-  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
     result.updatedAt = new Date().toISOString();
   }
 
@@ -342,7 +342,7 @@ export function mergeSkills(
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   });
 
-  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
     result.updatedAt = new Date().toISOString();
   }
 
@@ -381,6 +381,24 @@ function toCanonicalValue(val: any): any {
 
 export function isRecordEqual(a: any, b: any): boolean {
   return JSON.stringify(toCanonicalValue(a)) === JSON.stringify(toCanonicalValue(b));
+}
+
+/**
+ * Key-order-independent canonical JSON serialization for comparing records,
+ * ignoring updatedAt so mere timestamp advancement is not counted as a substantive change.
+ */
+export function isSubstantiveRecordEqual(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  const canonicalA = toCanonicalValue(a);
+  const canonicalB = toCanonicalValue(b);
+  if (canonicalA && typeof canonicalA === 'object' && !Array.isArray(canonicalA)) {
+    delete canonicalA.updatedAt;
+  }
+  if (canonicalB && typeof canonicalB === 'object' && !Array.isArray(canonicalB)) {
+    delete canonicalB.updatedAt;
+  }
+  return JSON.stringify(canonicalA) === JSON.stringify(canonicalB);
 }
 
 /**
@@ -483,7 +501,7 @@ export function mergeTasks(
     delete result.dueDate;
   }
 
-  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
     result.updatedAt = new Date().toISOString();
   }
 
@@ -531,7 +549,7 @@ export function mergeProjects(
     updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 
-  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
     result.updatedAt = new Date().toISOString();
   }
 
@@ -583,7 +601,7 @@ export function mergeHabits(
     updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 
-  if (!isRecordEqual(result, existing) && !isRecordEqual(result, incoming)) {
+  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
     result.updatedAt = new Date().toISOString();
   }
 
@@ -643,14 +661,17 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
 
   for (const incoming of validItems) {
     const existing = existingMap.get(incoming.id);
-    const rawIncomingTime = new Date(incoming.updatedAt || 0).getTime();
+    let rawIncomingTime = new Date(incoming.updatedAt || 0).getTime();
     let normalizedIncomingTime = rawIncomingTime - clockSkew;
 
-    // Future-skew clamp: Never allow normalized incoming timestamp to exceed localNow + 60s
+    // Future-skew clamp: Never allow incoming timestamp to exceed localNow + 60s
     // If a record is authored far in the future (> 60s), clamp its updatedAt to prevent locking out future edits on other devices.
-    if (normalizedIncomingTime > localNow + 60_000) {
-      normalizedIncomingTime = localNow;
+    if (rawIncomingTime > localNow + 60_000) {
       incoming.updatedAt = new Date(localNow).toISOString();
+      rawIncomingTime = localNow;
+      normalizedIncomingTime = localNow;
+    } else if (normalizedIncomingTime > localNow + 60_000) {
+      normalizedIncomingTime = localNow;
     }
 
     if (!existing) {
@@ -663,17 +684,24 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
 
       if (customMerger) {
         const merged = customMerger(existing, incoming, isIncomingNewerOrEqual);
-        if (!isRecordEqual(merged, existing)) {
+        const hasSubstantiveChange = !isSubstantiveRecordEqual(merged, existing);
+        const hasTimestampChange = !isRecordEqual(merged, existing);
+        if (hasSubstantiveChange) {
           toPut.push(merged);
           updated++;
+        } else if (hasTimestampChange) {
+          toPut.push(merged);
         } else {
           skipped++;
         }
       } else if (isStrictlyNewer) {
-        // Incoming is strictly newer: update only if content or timestamp differs
-        if (!isRecordEqual(incoming, existing)) {
+        const hasSubstantiveChange = !isSubstantiveRecordEqual(incoming, existing);
+        const hasTimestampChange = !isRecordEqual(incoming, existing);
+        if (hasSubstantiveChange) {
           toPut.push(incoming);
           updated++;
+        } else if (hasTimestampChange) {
+          toPut.push(incoming);
         } else {
           skipped++;
         }
@@ -682,10 +710,12 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
         if (incoming.isDeleted && !existing.isDeleted) {
           toPut.push(incoming);
           updated++;
-        } else if (!isRecordEqual(incoming, existing)) {
-          // If timestamps are identical but contents differ, incoming update applies
+        } else if (!isSubstantiveRecordEqual(incoming, existing)) {
+          // If timestamps are identical but substantive contents differ, incoming update applies
           toPut.push(incoming);
           updated++;
+        } else if (!isRecordEqual(incoming, existing)) {
+          toPut.push(incoming);
         } else {
           skipped++;
         }
@@ -699,7 +729,7 @@ async function mergeTableRecords<T extends { id: string; updatedAt: string; isDe
           } else if ((incoming as any).completed && !(existing as any).completed) {
             toPut.push(incoming);
             updated++;
-          } else if (existing.updatedAt === SEED_EPOCH_ISO && !isRecordEqual(incoming, existing)) {
+          } else if (existing.updatedAt === SEED_EPOCH_ISO && !isSubstantiveRecordEqual(incoming, existing)) {
             toPut.push(incoming);
             updated++;
           } else {
@@ -761,8 +791,17 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
 
     const stats: Record<string, MergeStats> = {};
 
-    // If a payload explicitly supplies a measured deviceClockOffsetMs, respect it; otherwise 0.
-    const clockSkewMs = typeof payload.deviceClockOffsetMs === 'number' ? payload.deviceClockOffsetMs : 0;
+    // Calculate clock skew between authoring device and local device:
+    // If a payload explicitly supplies a measured deviceClockOffsetMs, respect it;
+    // otherwise dynamically measure offset if exportedAt is in the future relative to localNow
+    const localNow = Date.now();
+    let clockSkewMs = typeof payload.deviceClockOffsetMs === 'number' ? payload.deviceClockOffsetMs : 0;
+    if (!clockSkewMs && typeof payload.exportedAt === 'string') {
+      const exportedMs = Date.parse(payload.exportedAt);
+      if (!Number.isNaN(exportedMs) && exportedMs > localNow) {
+        clockSkewMs = exportedMs - localNow;
+      }
+    }
     const mergeOptions = { clockSkewMs };
 
     await db.transaction(
