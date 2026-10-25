@@ -177,10 +177,10 @@ export function mergeUserProfiles(
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 
-  // If merged state took fields from both sides (differs from both existing and incoming),
-  // advance updatedAt to now so peer devices immediately recognize and adopt the composite state.
-  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
-    result.updatedAt = new Date().toISOString();
+  if (!isSubstantiveRecordEqual(result, existing)) {
+    result.updatedAt = (isIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+      ? incoming.updatedAt
+      : new Date().toISOString();
   }
 
   return result;
@@ -224,8 +224,10 @@ export function mergeAchievements(
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 
-  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
-    result.updatedAt = new Date().toISOString();
+  if (!isSubstantiveRecordEqual(result, existing)) {
+    result.updatedAt = (isIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+      ? incoming.updatedAt
+      : new Date().toISOString();
   }
 
   return result;
@@ -251,8 +253,10 @@ export function mergeLibraryItems(
       xpEarned: xpAwarded ? xpEarned : base.xpEarned,
       updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
     };
-    if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
-      result.updatedAt = new Date().toISOString();
+    if (!isSubstantiveRecordEqual(result, existing)) {
+      result.updatedAt = (isIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+        ? incoming.updatedAt
+        : new Date().toISOString();
     }
     return result;
   }
@@ -277,8 +281,10 @@ export function mergeLibraryItems(
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 
-  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
-    result.updatedAt = new Date().toISOString();
+  if (!isSubstantiveRecordEqual(result, existing)) {
+    result.updatedAt = (isIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+      ? incoming.updatedAt
+      : new Date().toISOString();
   }
 
   return result;
@@ -342,8 +348,10 @@ export function mergeSkills(
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   });
 
-  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
-    result.updatedAt = new Date().toISOString();
+  if (!isSubstantiveRecordEqual(result, existing)) {
+    result.updatedAt = (isIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+      ? incoming.updatedAt
+      : new Date().toISOString();
   }
 
   return result;
@@ -541,8 +549,10 @@ export function mergeTasks(
     delete result.dueDate;
   }
 
-  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
-    result.updatedAt = new Date().toISOString();
+  if (!isSubstantiveRecordEqual(result, existing)) {
+    result.updatedAt = (effectiveIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+      ? incoming.updatedAt
+      : new Date().toISOString();
   }
 
   return result;
@@ -589,8 +599,10 @@ export function mergeProjects(
     updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 
-  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
-    result.updatedAt = new Date().toISOString();
+  if (!isSubstantiveRecordEqual(result, existing)) {
+    result.updatedAt = (effectiveIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+      ? incoming.updatedAt
+      : new Date().toISOString();
   }
 
   return result;
@@ -641,8 +653,10 @@ export function mergeHabits(
     updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 
-  if (!isSubstantiveRecordEqual(result, existing) && !isSubstantiveRecordEqual(result, incoming)) {
-    result.updatedAt = new Date().toISOString();
+  if (!isSubstantiveRecordEqual(result, existing)) {
+    result.updatedAt = (effectiveIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+      ? incoming.updatedAt
+      : new Date().toISOString();
   }
 
   return result;

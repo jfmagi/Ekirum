@@ -773,9 +773,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         set({ isSyncing: true });
         try {
           const res = await pickBackupDirectory();
-          if (res.success) {
-            await get().syncWithDatabase();
-          }
+          await get().syncWithDatabase();
           await get().refreshBackupStatus();
           return res;
         } finally {
@@ -787,9 +785,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         set({ isSyncing: true });
         try {
           const res = await reconnectBackupDirectory();
-          if (res.success || res.totalChanges > 0 || res.filesProcessed > 0) {
-            await get().syncWithDatabase();
-          }
+          await get().syncWithDatabase();
           await get().refreshBackupStatus();
           return res;
         } finally {

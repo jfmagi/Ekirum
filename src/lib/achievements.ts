@@ -456,7 +456,7 @@ export function evaluateAchievements(
   let hasChanges = baseMap.size !== currentAchievements.length;
 
   for (const [id, ach] of baseMap.entries()) {
-    const isAlreadyUnlocked = Boolean(ach.unlockedAt);
+    const isAlreadyUnlocked = Boolean(ach.unlockedAt) || Boolean(user?.achievements?.includes(id));
     let targetProgress = ach.progress || 0;
     let shouldUnlock = isAlreadyUnlocked;
     const projMeta = parseProjectAchievementId(id);
@@ -578,8 +578,8 @@ export function evaluateAchievements(
       }
     }
 
-    let xpClaimed = ach.xpClaimed || false;
-    if (shouldUnlock && !xpClaimed) {
+    let xpClaimed = Boolean(ach.xpClaimed || isAlreadyUnlocked);
+    if (shouldUnlock && !xpClaimed && !isAlreadyUnlocked) {
       xpClaimed = true;
       const reward = ach.xpReward || 0;
       earnedXpBonus += reward;
