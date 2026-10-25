@@ -1,4 +1,4 @@
-import { db, getOrCreateDeviceId } from './db';
+import { db, getOrCreateDeviceId, regenerateDeviceId } from './db';
 import { exportAll, importAndMerge, compactTombstones, MergeResult } from './syncEngine';
 import { BackupFolderPermission } from '../types';
 import { formatLocalDate } from './dateParser';
@@ -443,6 +443,7 @@ export async function writeDeviceFile(
     }
 
     await db.settings.put({ key: 'lastExportedTablesHash', value: tablesFingerprint });
+    await db.settings.put({ key: 'lastWrittenDeviceFile', value: writtenFileName });
     return true;
   } catch (err) {
     console.error('Failed to write device sync file:', err);
@@ -760,7 +761,7 @@ async function syncDeviceFilesInner(
     }
 
     report.ran = true;
-    const localDeviceId = await getOrCreateDeviceId();
+    let localDeviceId = await getOrCreateDeviceId();
     let totalMergedChanges = 0;
     let filesProcessed = 0;
     let filesFailed = 0;
@@ -784,6 +785,67 @@ async function syncDeviceFilesInner(
 
     const entries = await getDirectoryEntries(handle);
     report.entryCount = entries.length;
+
+    // Detect and resolve Device ID collisions:
+    // If two devices share the same deviceId (e.g. from an imported backup, Chrome-synced profile,
+    // or manual file restore), they cannot see each other's device files.
+    // If the sync folder contains a device file with our localDeviceId that was authored by another
+    // device (higher task count or higher XP than local, or different fingerprint when this instance
+    // never wrote that file), auto-regenerate a fresh unique device ID for this device so both can sync.
+    const lastWrittenRecord = await db.settings.get('lastWrittenDeviceFile');
+    const lastWrittenFile: string = lastWrittenRecord?.value || '';
+    const lastHashRecord = await db.settings.get('lastExportedTablesHash');
+    const lastExportedHash: string = lastHashRecord?.value || '';
+
+    const ownPrefix = `device-${localDeviceId}`.toLowerCase();
+    const ownDeviceEntries = entries.filter(
+      (e) => e.kind === 'file' && e.name.toLowerCase().startsWith(ownPrefix)
+    );
+
+    if (ownDeviceEntries.length > 0) {
+      let isForeignCollision = false;
+      for (const ownEntry of ownDeviceEntries) {
+        if (lastWrittenFile && ownEntry.name === lastWrittenFile) {
+          continue;
+        }
+        try {
+          const f = await (ownEntry as any).getFile();
+          const txt = await f.text();
+          if (txt.length > 0) {
+            const parsed = JSON.parse(txt);
+            const fileFingerprint = JSON.stringify(parsed?.tables || {});
+            const localExport = await exportAll(localDeviceId);
+            const localFingerprint = JSON.stringify(localExport.tables);
+
+            if (fileFingerprint !== localFingerprint && fileFingerprint !== lastExportedHash) {
+              const fileTaskCount = Array.isArray(parsed?.tables?.tasks) ? parsed.tables.tasks.length : 0;
+              const localTaskCount = localExport.tables.tasks?.length || 0;
+              const fileXp = parsed?.tables?.userProfile?.[0]?.totalXp || 0;
+              const localXp = localExport.tables.userProfile?.[0]?.totalXp || 0;
+
+              // Collision confirmed if this device never wrote a device file to this folder,
+              // or if the external file with our ID has more tasks or XP than local
+              if (!lastWrittenFile || fileTaskCount > localTaskCount || fileXp > localXp) {
+                isForeignCollision = true;
+                break;
+              }
+            }
+          }
+        } catch {
+          // ignore read errors during collision check
+        }
+      }
+
+      if (isForeignCollision) {
+        const oldId = localDeviceId;
+        localDeviceId = await regenerateDeviceId();
+        report.deviceId = localDeviceId;
+        report.items.push({
+          name: `device-${oldId.slice(0, 8)}…`,
+          result: `Device ID collision resolved: assigned new unique ID (${localDeviceId.slice(0, 8)}…)`,
+        });
+      }
+    }
 
     const candidatesToExamine: {
       entry: FileSystemHandle;
@@ -878,10 +940,11 @@ async function syncDeviceFilesInner(
         const exportedMs = currentExportedAt ? Date.parse(currentExportedAt) : NaN;
         const sortTime = !Number.isNaN(exportedMs) ? exportedMs : currentMtime;
 
-        // If a file originated from the local device itself, skip it!
-        // Local IndexedDB is already the authoritative state of truth for the local device.
-        if (data?.deviceId === localDeviceId) {
-          report.items.push({ name: entry.name, result: 'written by this same device ID (skipped)' });
+        // For device files: If a foreign device file internally claims to have the local device ID,
+        // local IndexedDB is already the authoritative state of truth for this device ID.
+        // (Snapshots are archive backups and are ALWAYS eligible for CRDT/LWW merge if not unchanged).
+        if (!isSnapshot && data?.deviceId === localDeviceId) {
+          report.items.push({ name: entry.name, result: 'device file matched own ID (skipped)' });
           syncMtimes[entry.name] = {
             mtime: currentMtime,
             size: currentSize,

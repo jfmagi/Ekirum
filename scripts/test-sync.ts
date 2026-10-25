@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { db, initializeDatabase, getOrCreateDeviceId } from '../src/lib/db';
+import { db, initializeDatabase, getOrCreateDeviceId, regenerateDeviceId } from '../src/lib/db';
 import { exportAll, importAndMerge } from '../src/lib/syncEngine';
 import { syncDeviceFiles } from '../src/lib/backupService';
 
@@ -1002,6 +1002,11 @@ async function runTests() {
     isDeleted: false,
   });
 
+  await db.settings.put({
+    key: 'lastWrittenDeviceFile',
+    value: `device-${localDevId}-9999.json`,
+  });
+
   // Directory contains:
   // - Multiple timestamped files from the SAME foreign device 'desktop-peer'
   // - An own-device file with older/stale data (completed: false)
@@ -1218,6 +1223,161 @@ async function runTests() {
     throw new Error('device-desktop-peer-1000.json was not removed from supersededDeviceFiles after rescue!');
   }
   console.log('  ✓ Single foreign device file un-superseded and successfully merged on forceFullResync.');
+
+  // Test 19: Automatic collision detection and auto-regeneration of deviceId
+  console.log('\nTest 19: Automatic collision detection and auto-regeneration of deviceId...');
+  const collidingId = 'colliding-device-abc-123';
+  await db.settings.put({ key: 'deviceId', value: collidingId });
+  await db.settings.delete('lastWrittenDeviceFile');
+  await db.settings.delete('lastExportedTablesHash');
+
+  const test19Files = [
+    {
+      name: `device-${collidingId}-1729890000000.json`,
+      lastModified: 1729890000000,
+      content: JSON.stringify({
+        schemaVersion: 1,
+        deviceId: collidingId,
+        exportedAt: '2026-10-25T12:00:00.000Z',
+        tables: {
+          tasks: [
+            {
+              id: 'task-from-collided-desktop-1',
+              title: 'Collided Desktop Task 1',
+              priority: 'p1',
+              completed: true,
+              createdAt: '2026-10-25T10:00:00.000Z',
+              updatedAt: '2026-10-25T12:00:00.000Z',
+            },
+            {
+              id: 'task-from-collided-desktop-2',
+              title: 'Collided Desktop Task 2',
+              priority: 'p2',
+              completed: false,
+              createdAt: '2026-10-25T10:00:00.000Z',
+              updatedAt: '2026-10-25T12:00:00.000Z',
+            },
+            {
+              id: 'task-from-collided-desktop-3',
+              title: 'Collided Desktop Task 3',
+              priority: 'p3',
+              completed: false,
+              createdAt: '2026-10-25T10:00:00.000Z',
+              updatedAt: '2026-10-25T12:00:00.000Z',
+            },
+          ],
+          userProfile: [
+            {
+              id: 'profile-user',
+              name: 'Hero',
+              totalXp: 5000,
+              ekirumLevel: 14,
+            },
+          ],
+        },
+      }),
+    },
+  ];
+
+  const test19Handle = {
+    name: 'test-sync-folder-19',
+    removeEntry: async () => {},
+    values: async function* () {
+      for (const f of test19Files) {
+        yield {
+          kind: 'file',
+          name: f.name,
+          getFile: async () => ({
+            name: f.name,
+            size: f.content.length,
+            lastModified: f.lastModified,
+            text: async () => f.content,
+          }),
+        };
+      }
+    },
+  } as any;
+
+  const collisionRes = await syncDeviceFiles(test19Handle, true, true);
+  if (!collisionRes.mergeResult?.success) {
+    throw new Error(`Collision resolution sync failed: ${collisionRes.mergeResult?.error}`);
+  }
+
+  // 1. Device ID must have been regenerated to a fresh ID
+  const newDeviceId = await getOrCreateDeviceId();
+  if (newDeviceId === collidingId) {
+    throw new Error(`Device ID was NOT regenerated on collision! Still "${newDeviceId}"`);
+  }
+
+  // 2. The tasks from the collided device file must have been merged
+  const mergedCollidedTask = await db.tasks.get('task-from-collided-desktop-1');
+  if (!mergedCollidedTask || mergedCollidedTask.title !== 'Collided Desktop Task 1') {
+    throw new Error('Collided device tasks were not merged into database!');
+  }
+
+  // 3. User profile XP must have been adopted
+  const updatedProfile = await db.userProfile.toCollection().first();
+  if ((updatedProfile?.totalXp || 0) < 5000) {
+    throw new Error(`Profile XP was not updated after collision merge: ${updatedProfile?.totalXp}`);
+  }
+  console.log('  ✓ Live device ID collision auto-detected, unique ID regenerated, and foreign peer tasks merged successfully.');
+
+  // Test 20: Daily snapshot backup-YYYY-MM-DD.json merges even if created with same deviceId
+  console.log('\nTest 20: Daily snapshot backup-YYYY-MM-DD.json merges even if created with same deviceId...');
+  const activeDevId = await getOrCreateDeviceId();
+  const test20Files = [
+    {
+      name: 'backup-2026-10-25.json',
+      lastModified: Date.now(),
+      content: JSON.stringify({
+        schemaVersion: 1,
+        deviceId: activeDevId, // Same device ID!
+        exportedAt: '2026-10-25T15:00:00.000Z',
+        tables: {
+          tasks: [
+            {
+              id: 'task-snapshot-recovery-item',
+              title: 'Recovered From Same-Device Daily Snapshot',
+              priority: 'p1',
+              completed: true,
+              createdAt: '2026-10-25T14:00:00.000Z',
+              updatedAt: '2026-10-25T15:00:00.000Z',
+            },
+          ],
+        },
+      }),
+    },
+  ];
+
+  const test20Handle = {
+    name: 'test-sync-folder-20',
+    removeEntry: async () => {},
+    values: async function* () {
+      for (const f of test20Files) {
+        yield {
+          kind: 'file',
+          name: f.name,
+          getFile: async () => ({
+            name: f.name,
+            size: f.content.length,
+            lastModified: f.lastModified,
+            text: async () => f.content,
+          }),
+        };
+      }
+    },
+  } as any;
+
+  const snapshotRes = await syncDeviceFiles(test20Handle, true, true);
+  if (!snapshotRes.mergeResult?.success) {
+    throw new Error(`Snapshot sync failed: ${snapshotRes.mergeResult?.error}`);
+  }
+
+  const recoveredSnapshotTask = await db.tasks.get('task-snapshot-recovery-item');
+  if (!recoveredSnapshotTask || recoveredSnapshotTask.title !== 'Recovered From Same-Device Daily Snapshot') {
+    throw new Error('Daily snapshot was skipped because of matching deviceId!');
+  }
+  console.log('  ✓ Daily backup snapshot with matching deviceId successfully merged without being skipped.');
 
   console.log('\n🎉 ALL TESTS PASSED! Dexie schema, migrations, exportAll, and LWW importAndMerge are verified!\n');
 }

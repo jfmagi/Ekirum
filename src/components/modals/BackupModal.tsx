@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
-import { db } from '../../lib/db';
+import { db, regenerateDeviceId } from '../../lib/db';
 import { formatLocalDate } from '../../lib/dateParser';
 import {
   Download,
@@ -313,6 +313,29 @@ export const BackupModal: React.FC = () => {
     }
   };
 
+  // 8b. Regenerate Device ID (fixes multi-device ID collision)
+  const handleRegenerateId = async () => {
+    if (
+      window.confirm(
+        'Generate a new unique Sync Device ID for this browser? This ensures this device has its own identity and syncs separately from your other devices.'
+      )
+    ) {
+      try {
+        await regenerateDeviceId();
+        await refreshBackupStatus();
+        const res = await triggerBackupAndSync(true, true);
+        if (res.success) {
+          setActionMessage('New Device ID generated and synced.');
+        } else {
+          setActionMessage('New Device ID generated.');
+        }
+        setTimeout(() => setActionMessage(null), 3500);
+      } catch (err) {
+        console.warn('Regenerate device ID error:', err);
+      }
+    }
+  };
+
   // Format relative timestamp
   const formatTime = (iso?: string | null) => {
     if (!iso) return 'Never';
@@ -419,10 +442,20 @@ export const BackupModal: React.FC = () => {
                 </span>
               </div>
               {backupStatus?.deviceId && (
-                <span className="text-[10px] font-mono text-stone-500 flex items-center gap-1" title="Device ID">
-                  <Laptop size={11} />
-                  <span>{backupStatus.deviceId.slice(0, 12)}…</span>
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono text-stone-500 flex items-center gap-1" title="Device ID">
+                    <Laptop size={11} />
+                    <span>{backupStatus.deviceId.slice(0, 12)}…</span>
+                  </span>
+                  <button
+                    onClick={handleRegenerateId}
+                    disabled={isSyncing}
+                    title="Regenerate unique Device ID for this browser (fixes sync if two devices share the same ID)"
+                    className="text-[10px] text-stone-600 hover:text-charcoal px-1.5 py-0.5 rounded bg-stone-100 hover:bg-stone-200 transition-colors font-mono cursor-pointer disabled:opacity-50"
+                  >
+                    Reset ID
+                  </button>
+                </div>
               )}
             </div>
 

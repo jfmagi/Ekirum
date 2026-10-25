@@ -128,6 +128,29 @@ export async function getOrCreateDeviceId(): Promise<string> {
 }
 
 /**
+ * Regenerate a fresh unique device ID for this browser instance.
+ * Used when a device ID collision is detected or manually requested.
+ */
+export async function regenerateDeviceId(): Promise<string> {
+  const newId =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `device-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+  await db.settings.put({ key: 'deviceId', value: newId });
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('ekirum-device-id', newId);
+  }
+
+  // Clear sync caches so this device re-scans and syncs all files under its new identity
+  await db.settings.delete('deviceSyncMtimes');
+  await db.settings.delete('lastExportedTablesHash');
+  await db.settings.delete('lastWrittenDeviceFile');
+
+  return newId;
+}
+
+/**
  * Initialize Dexie with initial data or migrate from localStorage if present.
  */
 export async function initializeDatabase(): Promise<void> {
