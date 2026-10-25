@@ -226,11 +226,19 @@ export const BackupModal: React.FC = () => {
   const handleSelectFolder = async () => {
     const res = await selectBackupFolder();
     if (res.success) {
-      setActionMessage(`Connected backup folder: ${res.name}`);
-      setTimeout(() => setActionMessage(null), 3000);
+      if ((res as any).totalChanges > 0) {
+        setActionMessage(
+          `Connected "${res.name}" — synced ${(res as any).totalChanges} update${(res as any).totalChanges === 1 ? '' : 's'} from ${(res as any).filesProcessed || 1} file${(res as any).filesProcessed === 1 ? '' : 's'}.`
+        );
+      } else if ((res as any).filesProcessed > 0) {
+        setActionMessage(`Connected "${res.name}" — checked ${(res as any).filesProcessed} file${(res as any).filesProcessed === 1 ? '' : 's'}, already up to date.`);
+      } else {
+        setActionMessage(`Connected "${res.name}" (no other device files found in this folder).`);
+      }
+      setTimeout(() => setActionMessage(null), 5000);
     } else if (res.error) {
       setActionMessage(res.error);
-      setTimeout(() => setActionMessage(null), 3500);
+      setTimeout(() => setActionMessage(null), 4000);
     }
   };
 
@@ -241,14 +249,28 @@ export const BackupModal: React.FC = () => {
       if (res.totalChanges > 0) {
         setActionMessage(`Folder reconnected and synced (${res.totalChanges} update${res.totalChanges === 1 ? '' : 's'} applied).`);
       } else if (res.filesProcessed > 0) {
-        setActionMessage('Folder reconnected — already up to date.');
+        setActionMessage(`Folder reconnected — checked ${res.filesProcessed} file${res.filesProcessed === 1 ? '' : 's'}, already up to date.`);
       } else {
-        setActionMessage('Folder permissions reconnected and verified.');
+        setActionMessage('Folder reconnected (no other device files found in this folder).');
       }
-      setTimeout(() => setActionMessage(null), 3500);
+      setTimeout(() => setActionMessage(null), 5000);
     } else {
-      setActionMessage(res.error || 'Could not reconnect folder. Please re-select folder.');
-      setTimeout(() => setActionMessage(null), 3500);
+      // On Android Chrome, stored directory handles often lose OS permission permanently across restarts
+      // and require opening the folder picker directly.
+      const pickRes = await selectBackupFolder();
+      if (pickRes.success) {
+        if ((pickRes as any).totalChanges > 0) {
+          setActionMessage(
+            `Reconnected "${pickRes.name}" — synced ${(pickRes as any).totalChanges} update${(pickRes as any).totalChanges === 1 ? '' : 's'}.`
+          );
+        } else {
+          setActionMessage(`Reconnected folder: ${pickRes.name}`);
+        }
+        setTimeout(() => setActionMessage(null), 5000);
+      } else {
+        setActionMessage(pickRes.error || res.error || 'Could not reconnect folder. Please tap Change Folder.');
+        setTimeout(() => setActionMessage(null), 4000);
+      }
     }
   };
 

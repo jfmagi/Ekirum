@@ -25,13 +25,31 @@ export function isFileSystemAccessSupported(): boolean {
   return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 }
 
+let cachedDirectoryHandle: FileSystemDirectoryHandle | null = null;
+
 /**
- * Retrieve the saved FileSystemDirectoryHandle from IndexedDB.
+ * Retrieve the saved FileSystemDirectoryHandle from memory cache or IndexedDB.
+ * Keeping the in-memory handle prevents IndexedDB deserialization from resetting
+ * transient permission state to 'prompt' within the same session on Android Chrome,
+ * and allows synchronous access during user gesture handlers so requestPermission()
+ * does not lose transient user activation across IndexedDB awaits.
  */
 export async function getSavedDirectoryHandle(): Promise<FileSystemDirectoryHandle | null> {
   try {
+    if (cachedDirectoryHandle) {
+      const record = await db.settings.get(HANDLE_KEY);
+      if (!record?.value) {
+        cachedDirectoryHandle = null;
+        return null;
+      }
+      return cachedDirectoryHandle;
+    }
     const record = await db.settings.get(HANDLE_KEY);
-    return record?.value as FileSystemDirectoryHandle || null;
+    const handle = (record?.value as FileSystemDirectoryHandle) || null;
+    if (handle) {
+      cachedDirectoryHandle = handle;
+    }
+    return handle;
   } catch (err) {
     console.warn('Failed to retrieve directory handle:', err);
     return null;
@@ -39,9 +57,10 @@ export async function getSavedDirectoryHandle(): Promise<FileSystemDirectoryHand
 }
 
 /**
- * Save directory handle into IndexedDB.
+ * Save directory handle into memory cache and IndexedDB.
  */
 export async function saveDirectoryHandle(handle: FileSystemDirectoryHandle): Promise<void> {
+  cachedDirectoryHandle = handle;
   await db.settings.put({ key: HANDLE_KEY, value: handle });
   await db.settings.put({
     key: CONFIG_KEY,
@@ -111,23 +130,34 @@ export async function verifyHandlePermission(
 ): Promise<BackupFolderPermission> {
   if (!handle) return 'denied';
 
+  // When called from a direct user gesture (e.g. clicking "Reconnect" or "Sync Now"),
+  // call requestPermission IMMEDIATELY before any other awaits so Android Chrome does not
+  // consume or expire the transient user activation!
+  if (requestIfNeeded && typeof (handle as any).requestPermission === 'function') {
+    try {
+      const req = await (handle as any).requestPermission({ mode: 'readwrite' });
+      if (req === 'granted') return 'granted';
+    } catch (reqErr) {
+      console.warn('requestPermission(readwrite) error:', reqErr);
+    }
+    try {
+      const reqRead = await (handle as any).requestPermission({ mode: 'read' });
+      if (reqRead === 'granted') return 'granted';
+    } catch {
+      // ignore
+    }
+  }
+
   // 1. Try standard queryPermission if supported
   if (typeof (handle as any).queryPermission === 'function') {
     try {
       const query = await (handle as any).queryPermission({ mode: 'readwrite' });
       if (query === 'granted') return 'granted';
-      if (query === 'denied') return 'denied';
 
-      // If 'prompt' and user gesture allows requestPermission
-      if (requestIfNeeded && typeof (handle as any).requestPermission === 'function') {
-        try {
-          const req = await (handle as any).requestPermission({ mode: 'readwrite' });
-          if (req === 'granted') return 'granted';
-          if (req === 'denied') return 'denied';
-        } catch (reqErr) {
-          console.warn('requestPermission error:', reqErr);
-        }
-      }
+      const queryRead = await (handle as any).queryPermission({ mode: 'read' });
+      if (queryRead === 'granted') return 'granted';
+
+      if (query === 'denied' && queryRead === 'denied') return 'denied';
 
       // On Android SAF, queryPermission can return 'prompt' even when the handle is already
       // permitted by the OS SAF document tree grant. Probe direct access before giving up.
@@ -147,16 +177,6 @@ export async function verifyHandlePermission(
   const canAccess = await probeHandleAccess(handle);
   if (canAccess) {
     return 'granted';
-  }
-
-  // 3. If direct read failed and requestIfNeeded is true, try requestPermission if available
-  if (requestIfNeeded && typeof (handle as any).requestPermission === 'function') {
-    try {
-      const req = await (handle as any).requestPermission({ mode: 'readwrite' });
-      return req === 'granted' ? 'granted' : req === 'denied' ? 'denied' : 'prompt';
-    } catch (reqErr) {
-      console.warn('requestPermission error in fallback:', reqErr);
-    }
   }
 
   return 'prompt';
@@ -248,7 +268,13 @@ export async function getBackupStatus(): Promise<BackupStatus> {
 /**
  * Open folder picker and save the selected directory.
  */
-export async function pickBackupDirectory(): Promise<{ success: boolean; name?: string; error?: string }> {
+export async function pickBackupDirectory(): Promise<{
+  success: boolean;
+  name?: string;
+  totalChanges?: number;
+  filesProcessed?: number;
+  error?: string;
+}> {
   if (!isFileSystemAccessSupported()) {
     return { success: false, error: 'File System Access API is not supported in this browser.' };
   }
@@ -272,13 +298,18 @@ export async function pickBackupDirectory(): Promise<{ success: boolean; name?: 
     await saveDirectoryHandle(handle);
 
     // 1. Immediately merge foreign devices and snapshots from the selected folder
-    await syncDeviceFiles(handle, true, true);
+    const syncRes = await syncDeviceFiles(handle, true, true);
     // 2. Export local state to device-<id>.json so other devices can sync our data
     await writeDeviceFile(handle, true);
     // 3. Create initial daily backup snapshot
     await performDailyBackup(handle, true);
 
-    return { success: true, name: handle.name };
+    return {
+      success: true,
+      name: handle.name,
+      totalChanges: syncRes.mergeResult?.totalChanges || 0,
+      filesProcessed: syncRes.filesProcessed || 0,
+    };
   } catch (err: any) {
     if (err.name === 'AbortError') {
       return { success: false, error: 'Folder selection was canceled.' };
@@ -291,7 +322,9 @@ export async function pickBackupDirectory(): Promise<{ success: boolean; name?: 
  * Prompt user to reconnect permission for the existing directory handle.
  */
 export async function reconnectBackupDirectory(): Promise<BackupAndSyncResult> {
-  const handle = await getSavedDirectoryHandle();
+  // Use cachedDirectoryHandle synchronously if present so requestPermission() is called
+  // in the very first microtask of the user's button click without losing user activation!
+  const handle = cachedDirectoryHandle || (await getSavedDirectoryHandle());
   if (!handle) {
     return { success: false, totalChanges: 0, filesProcessed: 0, error: 'No backup folder configured.' };
   }
