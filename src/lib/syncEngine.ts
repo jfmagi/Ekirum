@@ -11,7 +11,7 @@ import {
   LibraryItem,
 } from '../types';
 import { calculateHabitStreak } from '../store/useEkirumStore';
-import { computeUserLevelAndRank, calculateSkillLevel } from './characterMath';
+import { computeUserLevelAndRank, calculateSkillLevel, getEkirumRankTitle } from './characterMath';
 import {
   sanitizeTask,
   sanitizeProject,
@@ -22,7 +22,7 @@ import {
   sanitizeUserProfile,
   sanitizeLibraryItem,
 } from './schemaSanitizers';
-import { SEED_EPOCH_ISO } from './seedData';
+import { SEED_EPOCH_ISO, INITIAL_USER } from './seedData';
 
 export interface MergeStats {
   inserted: number;
@@ -132,9 +132,9 @@ export function mergeUserProfiles(
   // while ensuring monotonicity against incoming.totalXp (handles clean pull from higher-progress peer)
   const totalXp = Math.max(existingXp + incomingNewXpDelta, incomingXp);
 
-  const { level: derivedLevel, rank: derivedRank } = computeUserLevelAndRank(totalXp);
+  const { level: derivedLevel } = computeUserLevelAndRank(totalXp);
   const ekirumLevel = Math.max(existing.ekirumLevel || 1, incoming.ekirumLevel || 1, derivedLevel);
-  const ekirumRank = derivedRank;
+  const ekirumRank = getEkirumRankTitle(ekirumLevel);
 
   const mergedAchievements = Array.from(
     new Set([...(existing.achievements || []), ...(incoming.achievements || [])])
@@ -432,37 +432,73 @@ export function mergeTasks(
 
   let base = effectiveIncomingNewer ? incoming : existing;
 
-  // Monotonic completion: if completed on incoming and not completed on existing, apply completion
-  const completed = Boolean(existing.completed || incoming.completed);
-  const completedAt = completed
-    ? (incoming.completed && !existing.completed
-        ? (incoming.completedAt || incoming.updatedAt)
-        : existing.completed && !incoming.completed
-          ? (existing.completedAt || existing.updatedAt)
-          : base.completedAt)
-    : undefined;
+  let completed = base.completed;
+  let completedAt = base.completedAt;
+  let uncompletedAt = base.uncompletedAt;
+  let xpAwarded = base.xpAwarded;
 
-  const xpAwarded = completed
-    ? (incoming.completed && typeof incoming.xpAwarded === 'number'
+  if (existing.completed && incoming.completed) {
+    completed = true;
+    completedAt = existing.completedAt && incoming.completedAt
+      ? (new Date(existing.completedAt).getTime() < new Date(incoming.completedAt).getTime()
+          ? existing.completedAt
+          : incoming.completedAt)
+      : existing.completedAt || incoming.completedAt || base.completedAt;
+    uncompletedAt = undefined;
+    xpAwarded = typeof existing.xpAwarded === 'number'
+      ? existing.xpAwarded
+      : typeof incoming.xpAwarded === 'number'
         ? incoming.xpAwarded
-        : existing.completed && typeof existing.xpAwarded === 'number'
-          ? existing.xpAwarded
-          : incoming.xpAwarded ?? existing.xpAwarded)
-    : undefined;
+        : base.xpAwarded;
+  } else if (!existing.completed && !incoming.completed) {
+    completed = false;
+    completedAt = undefined;
+    uncompletedAt = existing.uncompletedAt && incoming.uncompletedAt
+      ? (new Date(existing.uncompletedAt).getTime() > new Date(incoming.uncompletedAt).getTime()
+          ? existing.uncompletedAt
+          : incoming.uncompletedAt)
+      : existing.uncompletedAt || incoming.uncompletedAt || base.uncompletedAt;
+    xpAwarded = undefined;
+  } else {
+    // One record is completed and one is uncompleted
+    const completedRecord = existing.completed ? existing : incoming;
+    const uncompletedRecord = existing.completed ? incoming : existing;
 
-  // Merge subtask completion progress
+    const completedTime = completedRecord.completedAt
+      ? new Date(completedRecord.completedAt).getTime()
+      : new Date(completedRecord.updatedAt || 0).getTime();
+
+    // Check if the uncompleted record has an explicit uncompletedAt timestamp,
+    // or if incoming is strictly newer and explicitly uncompleted
+    const uncompletedTime = uncompletedRecord.uncompletedAt
+      ? new Date(uncompletedRecord.uncompletedAt).getTime()
+      : (uncompletedRecord === incoming && effectiveIncomingNewer)
+        ? new Date(uncompletedRecord.updatedAt || 0).getTime()
+        : 0;
+
+    if (uncompletedTime > completedTime) {
+      // The task was uncompleted strictly after the completion timestamp
+      completed = false;
+      completedAt = undefined;
+      uncompletedAt = uncompletedRecord.uncompletedAt || uncompletedRecord.updatedAt;
+      xpAwarded = undefined;
+    } else {
+      // The completion happened after the uncompletion, or incoming was completed and existing never uncompleted it (Test 13)
+      completed = true;
+      completedAt = completedRecord.completedAt || completedRecord.updatedAt || new Date().toISOString();
+      uncompletedAt = undefined;
+      xpAwarded = completedRecord.xpAwarded;
+    }
+  }
+
+  // Merge subtask completion progress: if local task is newer but older incoming had completed subtasks,
+  // ensure those completed subtasks are not lost (handles Test 13: lower-progress device with newer updatedAt).
   let subtasks = base.subtasks || [];
-  if (
-    Array.isArray(existing.subtasks) &&
-    existing.subtasks.length > 0 &&
-    Array.isArray(incoming.subtasks) &&
-    incoming.subtasks.length > 0
-  ) {
-    const otherSubtasks = effectiveIncomingNewer ? existing.subtasks : incoming.subtasks;
-    const otherMap = new Map(otherSubtasks.map((s) => [s.id, s]));
+  if (!effectiveIncomingNewer && Array.isArray(existing.subtasks) && Array.isArray(incoming.subtasks)) {
+    const incomingMap = new Map(incoming.subtasks.map((s) => [s.id, s]));
     subtasks = subtasks.map((s) => {
-      const other = otherMap.get(s.id);
-      if (other && other.completed && !s.completed) {
+      const inc = incomingMap.get(s.id);
+      if (inc && inc.completed && !s.completed) {
         return { ...s, completed: true };
       }
       return s;
@@ -486,6 +522,7 @@ export function mergeTasks(
     ...base,
     completed,
     ...(completedAt !== undefined ? { completedAt } : {}),
+    ...(uncompletedAt !== undefined ? { uncompletedAt } : {}),
     ...(xpAwarded !== undefined ? { xpAwarded } : {}),
     ...(dueDate !== undefined ? { dueDate } : {}),
     subtasks,
@@ -493,6 +530,9 @@ export function mergeTasks(
   };
   if (completedAt === undefined) {
     delete result.completedAt;
+  }
+  if (uncompletedAt === undefined) {
+    delete result.uncompletedAt;
   }
   if (xpAwarded === undefined) {
     delete result.xpAwarded;
@@ -850,7 +890,12 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
           for (const raw of tables.tasks) {
             if (!raw || !raw.id || !raw.completed) continue;
             const existingTask = existingTasksMap.get(raw.id);
-            if (!existingTask || !existingTask.completed) {
+            const isUncompletedLocally = Boolean(
+              existingTask?.uncompletedAt &&
+                new Date(existingTask.uncompletedAt).getTime() >
+                  new Date(raw.completedAt || raw.updatedAt || 0).getTime()
+            );
+            if (!isUncompletedLocally && (!existingTask || !existingTask.completed)) {
               // Newly completed task!
               let taskXp = 0;
               if (typeof raw.xpAwarded === 'number' && !isNaN(raw.xpAwarded) && raw.xpAwarded >= 0) {
@@ -946,7 +991,6 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
             }
           }
         }
-
         // 1. Merge Tasks
         if (tables.tasks) {
           stats.tasks = await mergeTableRecords<Task>(db.tasks, tables.tasks, sanitizeTask, mergeOptions, mergeTasks);
@@ -1019,7 +1063,7 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
         }
 
         // 7. Merge User Profile (normalizing legacy 'default' id to canonical 'user-1')
-        if (tables.userProfile) {
+        if (tables.userProfile && (!Array.isArray(tables.userProfile) || tables.userProfile.length > 0)) {
           const rawProfiles = Array.isArray(tables.userProfile) ? tables.userProfile : [tables.userProfile];
           const sanitizedIncoming: UserProfile[] = [];
           for (const raw of rawProfiles) {
@@ -1067,6 +1111,23 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
             (existing, incoming, isIncomingNewer) =>
               mergeUserProfiles(existing, incoming, isIncomingNewer, incomingNewXpDelta)
           );
+        } else if (incomingNewXpDelta > 0) {
+          // Backup file did not contain userProfile table, but contained newly completed items that awarded XP
+          const existingUser = (await db.userProfile.get('user-1')) || (await db.userProfile.toCollection().first()) || INITIAL_USER;
+          const newXp = (existingUser.totalXp || 0) + incomingNewXpDelta;
+          const { level } = computeUserLevelAndRank(newXp);
+          const effectiveLevel = Math.max(existingUser.ekirumLevel || 1, level);
+          const effectiveRank = getEkirumRankTitle(effectiveLevel);
+          const updatedUser: UserProfile = {
+            ...existingUser,
+            id: 'user-1',
+            totalXp: newXp,
+            ekirumLevel: effectiveLevel,
+            ekirumRank: effectiveRank,
+            updatedAt: new Date().toISOString(),
+          };
+          await db.userProfile.put(updatedUser);
+          stats.userProfile = { inserted: 0, updated: 1, skipped: 0 };
         }
 
         // 7b. Merge Library items

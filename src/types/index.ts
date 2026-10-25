@@ -29,6 +29,7 @@ export interface Task extends BaseEntity {
   labels: string[];
   completed: boolean;
   completedAt?: string;
+  uncompletedAt?: string;
   xpAwarded?: number;
   subtasks: Subtask[];
   section?: string; // For board view columns: e.g. "To Do", "In Progress", "Done"

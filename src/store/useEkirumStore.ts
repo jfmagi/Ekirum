@@ -370,6 +370,7 @@ export function advanceRecurringTask(
     id: archiveId,
     completed: true,
     completedAt: nowIso,
+    uncompletedAt: undefined,
     xpAwarded: earnedXp,
     recurrence: 'none',
     recurrenceAnchorDay: undefined,
@@ -382,6 +383,7 @@ export function advanceRecurringTask(
     recurrenceAnchorDay: anchorDay,
     completed: false,
     completedAt: undefined,
+    uncompletedAt: undefined,
     updatedAt: nowIso,
   };
 
@@ -389,6 +391,8 @@ export function advanceRecurringTask(
 }
 
 let backgroundSyncTimer: any = null;
+let isSyncingFromDatabase = false;
+
 export function scheduleBackgroundSync(delayMs = 2000) {
   if (typeof window === 'undefined') return;
   if (!isFileSystemAccessSupported()) return;
@@ -530,7 +534,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           const currentAchIds = new Set(user.achievements || []);
           unlockedIds.forEach((achId) => currentAchIds.add(achId));
           const newUserXp = user.totalXp + earnedXpBonus;
-          const { level: newLevel, rank: newRank } = computeUserLevelAndRank(newUserXp);
+          const { level: derivedLevel } = computeUserLevelAndRank(newUserXp);
+          const newLevel = Math.max(user.ekirumLevel || 1, derivedLevel);
+          const newRank = getEkirumRankTitle(newLevel);
           updatedUser = {
             ...user,
             totalXp: newUserXp,
@@ -653,16 +659,31 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               }
               (u.achievements || []).forEach((id) => achSet.add(id));
             }
-            const { level, rank } = computeUserLevelAndRank(maxTotalXp);
+            const { level } = computeUserLevelAndRank(maxTotalXp);
+            const effLevel = Math.max(currentUser.ekirumLevel || 1, level);
             currentUser = {
               ...currentUser,
               id: 'user-1',
               totalXp: maxTotalXp,
-              ekirumLevel: level,
-              ekirumRank: rank,
+              ekirumLevel: effLevel,
+              ekirumRank: getEkirumRankTitle(effLevel),
               achievements: Array.from(achSet),
               updatedAt: latestUpdatedAt,
             };
+          }
+
+          // Ensure single/existing userProfile always derives effective level and rank consistently
+          const { level: derivedLevel } = computeUserLevelAndRank(currentUser.totalXp || 0);
+          const effectiveLevel = Math.max(currentUser.ekirumLevel || 1, derivedLevel);
+          const effectiveRank = getEkirumRankTitle(effectiveLevel);
+          let userProfileNeedsSync = hadDuplicateUsers;
+          if (currentUser.ekirumLevel !== effectiveLevel || currentUser.ekirumRank !== effectiveRank) {
+            currentUser = {
+              ...currentUser,
+              ekirumLevel: effectiveLevel,
+              ekirumRank: effectiveRank,
+            };
+            userProfileNeedsSync = true;
           }
           const currentAchs = allAchievements.length > 0 ? allAchievements : INITIAL_ACHIEVEMENTS;
 
@@ -695,7 +716,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             const currentAchIds = new Set(currentUser.achievements || []);
             unlockedIds.forEach((id) => currentAchIds.add(id));
             const newUserXp = currentUser.totalXp + earnedXpBonus;
-            const { level: newLevel, rank: newRank } = computeUserLevelAndRank(newUserXp);
+            const { level: derivedLevelUnlocked } = computeUserLevelAndRank(newUserXp);
+            const newLevel = Math.max(currentUser.ekirumLevel || 1, derivedLevelUnlocked);
+            const newRank = getEkirumRankTitle(newLevel);
             currentUser = {
               ...currentUser,
               id: 'user-1',
@@ -706,7 +729,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               updatedAt: new Date().toISOString(),
             };
             dbWritePromises.push(db.userProfile.put(currentUser).catch(saveCatch('updating user profile')));
-          } else if (hadDuplicateUsers) {
+          } else if (userProfileNeedsSync) {
             dbWritePromises.push(db.userProfile.put(currentUser).catch(saveCatch('consolidating user profile')));
           }
 
@@ -718,15 +741,20 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             await Promise.all(dbWritePromises);
           }
 
-          set({
-            tasks: activeTasks,
-            projects: activeProjects,
-            skills: updatedSkills,
-            habits: activeHabits,
-            libraryItems: activeLibrary,
-            achievements: updatedAchievements,
-            user: currentUser,
-          });
+          isSyncingFromDatabase = true;
+          try {
+            set({
+              tasks: activeTasks,
+              projects: activeProjects,
+              skills: updatedSkills,
+              habits: activeHabits,
+              libraryItems: activeLibrary,
+              achievements: updatedAchievements,
+              user: currentUser,
+            });
+          } finally {
+            isSyncingFromDatabase = false;
+          }
         } catch (err) {
           handleStorageError(err, 'synchronizing database');
         }
@@ -743,28 +771,37 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
 
       selectBackupFolder: async () => {
         set({ isSyncing: true });
-        const res = await pickBackupDirectory();
-        if (res.success) {
-          await get().syncWithDatabase();
+        try {
+          const res = await pickBackupDirectory();
+          if (res.success) {
+            await get().syncWithDatabase();
+          }
+          await get().refreshBackupStatus();
+          return res;
+        } finally {
+          set({ isSyncing: false });
         }
-        await get().refreshBackupStatus();
-        set({ isSyncing: false });
-        return res;
       },
 
       reconnectBackupFolder: async (): Promise<BackupAndSyncResult> => {
         set({ isSyncing: true });
-        const res = await reconnectBackupDirectory();
-        if (res.success) {
-          await get().syncWithDatabase();
+        try {
+          const res = await reconnectBackupDirectory();
+          if (res.success || res.totalChanges > 0 || res.filesProcessed > 0) {
+            await get().syncWithDatabase();
+          }
+          await get().refreshBackupStatus();
+          return res;
+        } finally {
+          set({ isSyncing: false });
         }
-        await get().refreshBackupStatus();
-        set({ isSyncing: false });
-        return res;
       },
 
       triggerBackupAndSync: async (force = true, forceFullResync = false) => {
-        if (get().isSyncing && !force) return { success: false, totalChanges: 0, filesProcessed: 0 };
+        if (get().isSyncing && !force) {
+          scheduleBackgroundSync(1500);
+          return { success: false, totalChanges: 0, filesProcessed: 0 };
+        }
         set({ isSyncing: true });
         try {
           const res = await maybeBackupAndSync(force, forceFullResync);
@@ -992,7 +1029,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
 
           if (!isNowCompleted) {
             // Uncompleting a task
-            const updated = { ...task, completed: false, completedAt: undefined, updatedAt: now };
+            const updated = { ...task, completed: false, completedAt: undefined, uncompletedAt: now, updatedAt: now };
             set((state) => ({
               tasks: state.tasks.map((t) => (t.id === id ? updated : t)),
             }));
@@ -1032,6 +1069,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               ...task,
               completed: true,
               completedAt: now,
+              uncompletedAt: undefined,
               xpAwarded: earnedXp,
               updatedAt: now,
             };
@@ -1083,7 +1121,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           }
 
           const newUserXp = user.totalXp + earnedXp;
-          const newEkirumLevel = Math.max(1, Math.floor(Math.sqrt(newUserXp / 30)) + 1);
+          const { level: derivedLevel } = computeUserLevelAndRank(newUserXp);
+          const newEkirumLevel = Math.max(user.ekirumLevel || 1, derivedLevel);
           const newEkirumRank = getEkirumRankTitle(newEkirumLevel);
 
           let updatedUser: UserProfile = {
@@ -1123,7 +1162,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             const currentAchIds = new Set(updatedUser.achievements || []);
             unlockedIds.forEach((achId) => currentAchIds.add(achId));
             const finalUserXp = updatedUser.totalXp + earnedXpBonus;
-            const { level: finalLevel, rank: finalRank } = computeUserLevelAndRank(finalUserXp);
+            const { level: derivedFinalLevel } = computeUserLevelAndRank(finalUserXp);
+            const finalLevel = Math.max(updatedUser.ekirumLevel || 1, derivedFinalLevel);
+            const finalRank = getEkirumRankTitle(finalLevel);
             updatedUser = {
               ...updatedUser,
               totalXp: finalUserXp,
@@ -1353,7 +1394,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           const currentAchIds = new Set(updatedUser.achievements || []);
           unlockedIds.forEach((achId) => currentAchIds.add(achId));
           const newUserXp = updatedUser.totalXp + earnedXpBonus;
-          const { level: newLevel, rank: newRank } = computeUserLevelAndRank(newUserXp);
+          const { level: derivedLevel } = computeUserLevelAndRank(newUserXp);
+          const newLevel = Math.max(updatedUser.ekirumLevel || 1, derivedLevel);
+          const newRank = getEkirumRankTitle(newLevel);
           updatedUser = {
             ...updatedUser,
             totalXp: newUserXp,
@@ -1651,7 +1694,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           }
 
           const newUserXp = user.totalXp + earnedXp;
-          const newEkirumLevel = Math.max(1, Math.floor(Math.sqrt(newUserXp / 30)) + 1);
+          const { level: derivedLevel } = computeUserLevelAndRank(newUserXp);
+          const newEkirumLevel = Math.max(user.ekirumLevel || 1, derivedLevel);
           const newEkirumRank = getEkirumRankTitle(newEkirumLevel);
 
           let updatedUser: UserProfile = {
@@ -1692,7 +1736,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             const currentAchIds = new Set(updatedUser.achievements || []);
             unlockedIds.forEach((achId) => currentAchIds.add(achId));
             const finalUserXp = updatedUser.totalXp + earnedXpBonus;
-            const { level: finalLevel, rank: finalRank } = computeUserLevelAndRank(finalUserXp);
+            const { level: derivedFinalLevel } = computeUserLevelAndRank(finalUserXp);
+            const finalLevel = Math.max(updatedUser.ekirumLevel || 1, derivedFinalLevel);
+            const finalRank = getEkirumRankTitle(finalLevel);
             updatedUser = {
               ...updatedUser,
               totalXp: finalUserXp,
@@ -1900,7 +1946,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           }
 
           const newUserXp = user.totalXp + earnedXp;
-          const { level: newEkirumLevel, rank: newEkirumRank } = computeUserLevelAndRank(newUserXp);
+          const { level: derivedLevel } = computeUserLevelAndRank(newUserXp);
+          const newEkirumLevel = Math.max(user.ekirumLevel || 1, derivedLevel);
+          const newEkirumRank = getEkirumRankTitle(newEkirumLevel);
           let updatedUser: UserProfile = {
             ...user,
             totalXp: newUserXp,
@@ -1928,7 +1976,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             const currentAchIds = new Set(updatedUser.achievements || []);
             newlyUnlocked.forEach((a) => currentAchIds.add(a.id));
             const finalUserXp = updatedUser.totalXp + earnedXpBonus;
-            const { level: finalLevel, rank: finalRank } = computeUserLevelAndRank(finalUserXp);
+            const { level: derivedFinalLevel } = computeUserLevelAndRank(finalUserXp);
+            const finalLevel = Math.max(updatedUser.ekirumLevel || 1, derivedFinalLevel);
+            const finalRank = getEkirumRankTitle(finalLevel);
             updatedUser = {
               ...updatedUser,
               totalXp: finalUserXp,
@@ -2220,7 +2270,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
 );
 
 useEkirumStore.subscribe((state, prevState) => {
-  if (state.isSyncing) return;
+  if (isSyncingFromDatabase) return;
   if (
     state.tasks !== prevState.tasks ||
     state.habits !== prevState.habits ||
