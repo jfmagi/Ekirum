@@ -146,6 +146,7 @@ export async function regenerateDeviceId(): Promise<string> {
   await db.settings.delete('deviceSyncMtimes');
   await db.settings.delete('lastExportedTablesHash');
   await db.settings.delete('lastWrittenDeviceFile');
+  await db.settings.delete('supersededDeviceFiles');
 
   return newId;
 }

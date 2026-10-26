@@ -775,9 +775,15 @@ async function syncDeviceFilesInner(
       syncMtimesRecord?.value && typeof syncMtimesRecord.value === 'object'
         ? { ...syncMtimesRecord.value }
         : {};
+    const rawSuperseded: string[] = Array.isArray(supersededRecord?.value) ? supersededRecord.value : [];
+    // Only foreign device files (device-*.json) can ever be marked superseded.
+    // Purge any snapshots mistakenly recorded in supersededSet by older versions.
     const supersededSet = new Set<string>(
-      Array.isArray(supersededRecord?.value) ? supersededRecord.value : []
+      rawSuperseded.filter((name) => name.toLowerCase().startsWith('device-'))
     );
+    if (supersededSet.size !== rawSuperseded.length) {
+      await db.settings.put({ key: 'supersededDeviceFiles', value: Array.from(supersededSet) });
+    }
     let mtimesChanged = false;
     let supersededChanged = false;
 
@@ -873,10 +879,9 @@ async function syncDeviceFilesInner(
         continue;
       }
 
-      if (!forceFullResync && supersededSet.has(entry.name)) {
+      if (!forceFullResync && entry.name.toLowerCase().startsWith('device-') && supersededSet.has(entry.name)) {
         report.items.push({ name: entry.name, result: 'older copy (skipped)' });
-        // Only delete superseded device files; never delete daily backup snapshots.
-        if (entry.name.toLowerCase().startsWith('device-') && typeof (handle as any).removeEntry === 'function') {
+        if (typeof (handle as any).removeEntry === 'function') {
           await handle.removeEntry(entry.name).catch(() => {});
         }
         continue;
@@ -960,7 +965,15 @@ async function syncDeviceFilesInner(
         const prevExportedAt =
           typeof prevMeta === 'object' && prevMeta !== null ? (prevMeta?.exportedAt ?? '') : '';
 
+        const candidateTaskCount = Array.isArray(data?.tables?.tasks) ? data.tables.tasks.length : 0;
+        const candidateXp = data?.tables?.userProfile?.[0]?.totalXp || 0;
+        const localTaskCount = await db.tasks.count();
+        const localProfile = await db.userProfile.toCollection().first();
+        const localXp = localProfile?.totalXp || 0;
+        const isBehindCandidate = candidateTaskCount > localTaskCount || candidateXp > localXp;
+
         const isUnchanged =
+          !isBehindCandidate &&
           !forceFullResync &&
           !isArtifactToClean &&
           prevMeta !== undefined &&
@@ -997,44 +1010,12 @@ async function syncDeviceFilesInner(
     // so newer snapshots and active device files always have the final word on LWW fields.
     parsedCandidates.sort((a, b) => a.sortTime - b.sortTime);
 
-    // Every Ekirum backup/device file is a complete database export (exportAll) from its originating deviceId.
-    // Find the newest sortTime per deviceId so we do not re-merge obsolete historical daily snapshots
-    // when a newer file from that same deviceId is already present in the folder.
-    const newestSortTimeByDevice = new Map<string, number>();
-    for (const c of parsedCandidates) {
-      const devId = typeof c.data?.deviceId === 'string' && c.data.deviceId ? c.data.deviceId : '';
-      if (devId) {
-        const prevMax = newestSortTimeByDevice.get(devId) ?? -Infinity;
-        if (c.sortTime > prevMax) {
-          newestSortTimeByDevice.set(devId, c.sortTime);
-        }
-      }
-    }
-
     for (const candidate of parsedCandidates) {
       if (!candidate.shouldMerge) {
         report.items.push({ name: candidate.entry.name, result: 'unchanged since last sync (skipped)' });
         continue;
       }
-      const { entry, data, isArtifactToClean, isSnapshot, currentMtime, currentSize, currentExportedAt, sortTime } = candidate;
-      const devId = typeof data?.deviceId === 'string' && data.deviceId ? data.deviceId : '';
-      const newestForDevice = devId ? (newestSortTimeByDevice.get(devId) ?? sortTime) : sortTime;
-
-      // Skip older historical snapshots when a strictly newer full export from the same deviceId exists in the folder
-      if (isSnapshot && !isArtifactToClean && devId && sortTime < newestForDevice) {
-        report.items.push({ name: entry.name, result: 'older snapshot, newer file from same device exists (skipped)' });
-        if (!supersededSet.has(entry.name)) {
-          supersededSet.add(entry.name);
-          supersededChanged = true;
-        }
-        syncMtimes[entry.name] = {
-          mtime: currentMtime,
-          size: currentSize,
-          exportedAt: currentExportedAt,
-        };
-        mtimesChanged = true;
-        continue;
-      }
+      const { entry, data, isArtifactToClean, currentMtime, currentSize, currentExportedAt } = candidate;
 
       try {
         const mergeRes = await importAndMerge(data);
@@ -1193,11 +1174,7 @@ export async function maybeBackupAndSync(force = false, forceFullResync = false)
   if (activeSyncPromise) {
     pendingSyncForce = Boolean(pendingSyncForce || force);
     pendingSyncFullResync = Boolean(pendingSyncFullResync || forceFullResync);
-    const firstRes = await activeSyncPromise;
-    if (activeSyncPromise) {
-      return await activeSyncPromise;
-    }
-    return firstRes;
+    return await activeSyncPromise;
   }
 
   activeSyncPromise = (async () => {
