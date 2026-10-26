@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
-import { db, regenerateDeviceId } from '../../lib/db';
+import { db, regenerateDeviceId, getDevicePlatformLabel } from '../../lib/db';
 import { formatLocalDate } from '../../lib/dateParser';
 import {
   Download,
@@ -137,7 +137,10 @@ export const BackupModal: React.FC = () => {
       const now = new Date();
       const dateStr = formatLocalDate(now);
       const timeStr = `${now.getHours().toString().padStart(2, '0')}-${now.getMinutes().toString().padStart(2, '0')}`;
-      const filename = `ekirum-backup-${dateStr}_${timeStr}.json`;
+      const platform = backupStatus?.devicePlatform || getDevicePlatformLabel();
+      const shortId = (backupStatus?.deviceId || '').slice(0, 8);
+      const suffix = shortId ? `-${platform}-${shortId}` : `-${platform}`;
+      const filename = `ekirum-backup-${dateStr}_${timeStr}${suffix}.json`;
 
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -451,9 +454,14 @@ export const BackupModal: React.FC = () => {
               </div>
               {backupStatus?.deviceId && (
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-mono text-stone-500 flex items-center gap-1" title="Device ID">
+                  <span
+                    className="text-[10px] font-mono text-stone-500 flex items-center gap-1"
+                    title={`This device: ${backupStatus.devicePlatform || getDevicePlatformLabel()} (${backupStatus.deviceId})`}
+                  >
                     <Laptop size={11} />
-                    <span>{backupStatus.deviceId.slice(0, 12)}…</span>
+                    <span>
+                      This device: {backupStatus.devicePlatform || getDevicePlatformLabel()}-{backupStatus.deviceId.slice(0, 8)}
+                    </span>
                   </span>
                   <button
                     onClick={handleRegenerateId}
@@ -550,14 +558,23 @@ export const BackupModal: React.FC = () => {
                   <div className="p-2.5 rounded-mac bg-stone-100/80 border border-stone-200 text-[11px] font-mono space-y-1">
                     <div className="flex items-center justify-between text-stone-600 font-semibold">
                       <span>Folder Scan: {backupStatus.lastSyncReport.entryCount} total files inspected</span>
-                      <span className="text-[10px] text-stone-600">ID: {backupStatus.lastSyncReport.deviceId?.slice(0, 8)}…</span>
+                      <span className="text-[10px] text-stone-600">
+                        This device: {backupStatus.lastSyncReport.devicePlatform || getDevicePlatformLabel()}-{backupStatus.lastSyncReport.deviceId?.slice(0, 8)}
+                      </span>
                     </div>
                     {backupStatus.lastSyncReport.items.length > 0 ? (
-                      <ul className="space-y-0.5 max-h-32 overflow-y-auto pt-1 text-stone-600 divide-y divide-stone-200/50">
+                      <ul className="space-y-1 max-h-40 overflow-y-auto pt-1 text-stone-600 divide-y divide-stone-200/50">
                         {backupStatus.lastSyncReport.items.map((item, idx) => (
-                          <li key={idx} className="pt-0.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                            <span className="truncate max-w-[280px]" title={item.name}>{item.name}</span>
-                            <span className="text-stone-700 font-medium text-[10px]">{item.result}</span>
+                          <li key={idx} className="pt-1 flex flex-col gap-0.5">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                              <span className="truncate max-w-[280px] font-medium text-charcoal" title={item.name}>{item.name}</span>
+                              <span className="text-stone-700 font-medium text-[10px]">{item.result}</span>
+                            </div>
+                            {item.origin && (
+                              <div className="text-[10px] text-stone-500">
+                                ↳ {item.origin}
+                              </div>
+                            )}
                           </li>
                         ))}
                       </ul>

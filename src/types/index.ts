@@ -144,6 +144,7 @@ export interface BackupFile {
   schemaVersion: number;
   exportedAt: string;
   deviceId: string;
+  devicePlatform?: string;
   deviceClockOffsetMs?: number;
   tables: BackupTables;
 }

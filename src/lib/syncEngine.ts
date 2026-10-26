@@ -1,4 +1,4 @@
-import { db, getOrCreateDeviceId } from './db';
+import { db, getOrCreateDeviceId, getDevicePlatformLabel } from './db';
 import {
   BackupFile,
   Task,
@@ -96,6 +96,7 @@ export async function exportAll(
     schemaVersion: 1,
     exportedAt: new Date().toISOString(),
     deviceId,
+    devicePlatform: getDevicePlatformLabel(),
     deviceClockOffsetMs: options?.deviceClockOffsetMs ?? 0,
     tables: {
       tasks,

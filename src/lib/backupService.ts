@@ -1,4 +1,4 @@
-import { db, getOrCreateDeviceId, regenerateDeviceId } from './db';
+import { db, getOrCreateDeviceId, regenerateDeviceId, getDevicePlatformLabel } from './db';
 import { exportAll, importAndMerge, compactTombstones, MergeResult } from './syncEngine';
 import { BackupFolderPermission } from '../types';
 import { formatLocalDate } from './dateParser';
@@ -14,6 +14,7 @@ export interface BackupStatus {
   permission: BackupFolderPermission;
   isOverdue: boolean;
   deviceId: string;
+  devicePlatform?: string;
   foreignDeviceCount?: number;
   dailyBackupCount?: number;
   lastSyncReport?: SyncReport | null;
@@ -189,6 +190,7 @@ export async function verifyHandlePermission(
 export async function getBackupStatus(): Promise<BackupStatus> {
   const hasSupport = isFileSystemAccessSupported();
   const deviceId = await getOrCreateDeviceId();
+  const devicePlatform = getDevicePlatformLabel();
   const lastBackup = await db.settings.get('lastBackupAt');
   const lastSync = await db.settings.get('lastSyncAt');
   const config = await db.settings.get(CONFIG_KEY);
@@ -206,6 +208,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
       permission: 'unsupported',
       isOverdue: Boolean(lastBackupAt && Date.now() - new Date(lastBackupAt).getTime() > 48 * 3600 * 1000),
       deviceId,
+      devicePlatform,
     };
   }
 
@@ -219,6 +222,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
       permission: 'not-configured',
       isOverdue: false,
       deviceId,
+      devicePlatform,
     };
   }
 
@@ -237,10 +241,12 @@ export async function getBackupStatus(): Promise<BackupStatus> {
         if (entry.kind === 'file') {
           const c = classifySyncEntry(entry.name, deviceId);
           if (c.kind === 'device' && !c.isArtifactToClean) {
-            const match = entry.name.match(/^device-(.+?)(?:-\d{10,15})?\.json$/i);
+            const match = entry.name.match(
+              /^device-(?:(?:mac|android|ios|windows|linux|web|node)-)?(.+?)(?:-\d{10,15})?\.json$/i
+            );
             const devId = match ? match[1] : entry.name;
             if (devId && devId.toLowerCase() !== deviceId.toLowerCase()) {
-              foreignDeviceIds.add(devId);
+              foreignDeviceIds.add(devId.toLowerCase());
             }
           } else if (c.kind === 'snapshot' && !c.isArtifactToClean) {
             dailyBackupCount++;
@@ -264,6 +270,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     permission,
     isOverdue,
     deviceId,
+    devicePlatform,
     foreignDeviceCount,
     dailyBackupCount,
     lastSyncReport,
@@ -422,14 +429,15 @@ export async function writeDeviceFile(
       return true;
     }
 
+    const platform = getDevicePlatformLabel();
     const jsonContent = JSON.stringify(backupData, null, 2);
-    const newFileName = `device-${deviceId}-${Date.now()}.json`;
+    const newFileName = `device-${platform}-${deviceId}-${Date.now()}.json`;
     let writtenFileName = newFileName;
     try {
       await atomicWriteFile(handle, newFileName, jsonContent);
     } catch (timestampedWriteErr) {
       // Fallback for restricted Android SAF providers where creating new timestamped files may fail
-      const canonicalFileName = `device-${deviceId}.json`;
+      const canonicalFileName = `device-${platform}-${deviceId}.json`;
       await atomicWriteFile(handle, canonicalFileName, jsonContent);
       writtenFileName = canonicalFileName;
     }
@@ -452,7 +460,7 @@ export async function writeDeviceFile(
 }
 
 /**
- * Write daily archive snapshot backup-YYYY-MM-DD.json if >=24h or forced.
+ * Write daily archive snapshot backup-YYYY-MM-DD-<platform>-<shortId>.json if >=24h or forced.
  */
 export async function performDailyBackup(
   handle: FileSystemDirectoryHandle,
@@ -472,10 +480,12 @@ export async function performDailyBackup(
   }
 
   const todayStr = formatLocalDate();
-  const dailyFileName = `backup-${todayStr}.json`;
+  const platform = getDevicePlatformLabel();
+  const shortId = deviceId.slice(0, 8);
+  const dailyFileName = `backup-${todayStr}-${platform}-${shortId}.json`;
 
   try {
-    // Check if today's daily snapshot already exists in the folder.
+    // Check if today's daily snapshot from this device already exists in the folder.
     // Never overwrite an existing daily snapshot in-place because macOS Google Drive FileProvider
     // drops com.google.drivefs.item-id#S when an existing file is overwritten via .crswap.
     const entries = await getDirectoryEntries(handle);
@@ -641,6 +651,42 @@ export interface SyncClassification {
   kind: 'device' | 'snapshot' | 'own-device' | 'own-artifact' | 'none';
 }
 
+const KNOWN_PLATFORMS = ['mac', 'android', 'ios', 'windows', 'linux', 'web', 'node'];
+
+export function inferPlatformFromFilename(name: string): string {
+  const lower = (name || '').toLowerCase();
+  const m = lower.match(
+    /^(?:device|backup-\d{4}-\d{2}-\d{2}|ekirum-backup-[^_]+_[^-]+)-(mac|android|ios|windows|linux|web|node)-/
+  );
+  return m ? m[1] : '';
+}
+
+function formatFileOrigin(
+  data: any,
+  fileName: string,
+  localDeviceId: string,
+  localPlatform: string
+): string {
+  const fileDevId = typeof data?.deviceId === 'string' && data.deviceId ? data.deviceId : '';
+  const isOwn = Boolean(fileDevId && fileDevId.toLowerCase() === localDeviceId.toLowerCase());
+  const filePlatform =
+    (typeof data?.devicePlatform === 'string' && data.devicePlatform ? data.devicePlatform : '') ||
+    inferPlatformFromFilename(fileName) ||
+    (isOwn ? localPlatform : '');
+  const shortId = fileDevId ? fileDevId.slice(0, 8) : 'unknown';
+  const deviceTag = filePlatform ? `${filePlatform}-${shortId}` : shortId;
+  const who = isOwn ? `THIS DEVICE (${deviceTag})` : `OTHER DEVICE (${deviceTag})`;
+  const taskCount = Array.isArray(data?.tables?.tasks)
+    ? data.tables.tasks.filter((t: any) => !t?.isDeleted).length
+    : 0;
+  const profile = Array.isArray(data?.tables?.userProfile)
+    ? data.tables.userProfile[0]
+    : data?.tables?.userProfile;
+  const level = profile?.ekirumLevel || 1;
+  const xp = profile?.totalXp || 0;
+  return `Generated by: ${who} • ${taskCount} tasks • Lv.${level} (${xp} XP)`;
+}
+
 /**
  * Determine if a directory file entry is a candidate sync file or a recoverable SAF/conflict artifact.
  */
@@ -659,20 +705,27 @@ function classifySyncEntry(
     return { shouldProcess: false, isArtifactToClean: true, kind: 'own-artifact' };
   }
 
-  const ownPrefix = `device-${localDeviceId}`.toLowerCase();
-  const ownCanonicalName = `${ownPrefix}.json`;
+  const localIdLower = localDeviceId.toLowerCase();
+  const ownPrefixes = [
+    `device-${localIdLower}`,
+    ...KNOWN_PLATFORMS.map((p) => `device-${p}-${localIdLower}`),
+  ];
 
-  // Own primary device file (legacy device-<id>.json or write-once device-<id>-<timestamp>.json)
-  if (
-    lower === ownCanonicalName ||
-    (lower.startsWith(`${ownPrefix}-`) && /^device-[a-z0-9_-]+-\d{10,15}\.json$/.test(lower))
-  ) {
-    return { shouldProcess: false, isArtifactToClean: false, kind: 'own-device' };
-  }
+  for (const ownPrefix of ownPrefixes) {
+    const ownCanonicalName = `${ownPrefix}.json`;
 
-  // Own conflict copy or .tmp artifact (e.g. "device-<localId> (1).json" or "device-<localId>.json.tmp")
-  if (lower.startsWith(ownPrefix)) {
-    return { shouldProcess: false, isArtifactToClean: true, kind: 'own-artifact' };
+    // Own primary device file (legacy device-<id>.json or write-once device-[<platform>-]<id>-<timestamp>.json)
+    if (
+      lower === ownCanonicalName ||
+      (lower.startsWith(`${ownPrefix}-`) && /^device-[a-z0-9_-]+-\d{10,15}\.json$/.test(lower))
+    ) {
+      return { shouldProcess: false, isArtifactToClean: false, kind: 'own-device' };
+    }
+
+    // Own conflict copy or .tmp artifact (e.g. "device-<localId> (1).json" or "device-<localId>.json.tmp")
+    if (lower.startsWith(ownPrefix)) {
+      return { shouldProcess: false, isArtifactToClean: true, kind: 'own-artifact' };
+    }
   }
 
   // Canonical foreign device-<id>.json or device-<id>-<timestamp>.json file (or conflict copy)
@@ -689,7 +742,7 @@ function classifySyncEntry(
     return { shouldProcess: true, isArtifactToClean: true, kind: 'device' };
   }
 
-  // Daily backup snapshots or exported backups (e.g. backup-YYYY-MM-DD.json or ekirum-backup-*.json)
+  // Daily backup snapshots or exported backups (e.g. backup-YYYY-MM-DD.json, backup-YYYY-MM-DD-mac-25cf9d03.json, or ekirum-backup-*.json)
   if (
     (lower.startsWith('backup-') || lower.startsWith('ekirum-backup-')) &&
     (lower.endsWith('.json') || lower.endsWith('.tmp') || /\.json\s*\(\d+\)$/.test(lower))
@@ -704,8 +757,9 @@ function classifySyncEntry(
 export interface SyncReport {
   at: string;
   deviceId: string;
+  devicePlatform?: string;
   entryCount: number;
-  items: { name: string; result: string }[];
+  items: { name: string; result: string; origin?: string }[];
   error?: string;
   ran: boolean;
 }
@@ -723,6 +777,7 @@ export async function syncDeviceFiles(
   const report: SyncReport = {
     at: new Date().toISOString(),
     deviceId: '',
+    devicePlatform: getDevicePlatformLabel(),
     entryCount: 0,
     items: [],
     ran: false,
@@ -762,10 +817,12 @@ async function syncDeviceFilesInner(
 
     report.ran = true;
     let localDeviceId = await getOrCreateDeviceId();
+    const localPlatform = getDevicePlatformLabel();
     let totalMergedChanges = 0;
     let filesProcessed = 0;
     let filesFailed = 0;
     report.deviceId = localDeviceId;
+    report.devicePlatform = localPlatform;
 
     const [syncMtimesRecord, supersededRecord] = await Promise.all([
       forceFullResync ? Promise.resolve(null) : db.settings.get('deviceSyncMtimes'),
@@ -803,9 +860,8 @@ async function syncDeviceFilesInner(
     const lastHashRecord = await db.settings.get('lastExportedTablesHash');
     const lastExportedHash: string = lastHashRecord?.value || '';
 
-    const ownPrefix = `device-${localDeviceId}`.toLowerCase();
     const ownDeviceEntries = entries.filter(
-      (e) => e.kind === 'file' && e.name.toLowerCase().startsWith(ownPrefix)
+      (e) => e.kind === 'file' && classifySyncEntry(e.name, localDeviceId).kind === 'own-device'
     );
 
     if (ownDeviceEntries.length > 0) {
@@ -875,7 +931,22 @@ async function syncDeviceFilesInner(
       if (classification.kind === 'own-device') {
         // Local IndexedDB is already the authoritative state of truth for the local device.
         // We never re-merge our own device files back into the local database.
-        report.items.push({ name: entry.name, result: 'this device\'s own file (skipped)' });
+        let ownOrigin = `Generated by: THIS DEVICE (${localPlatform}-${localDeviceId.slice(0, 8)})`;
+        try {
+          const ownFile = await (entry as any).getFile();
+          const ownText = await ownFile.text();
+          if (ownText.length > 0 && ownText.length <= MAX_DEVICE_FILE_SIZE) {
+            const ownData = JSON.parse(ownText);
+            ownOrigin = formatFileOrigin(ownData, entry.name, localDeviceId, localPlatform);
+          }
+        } catch {
+          // fallback to default ownOrigin
+        }
+        report.items.push({
+          name: entry.name,
+          result: "this device's own file (skipped)",
+          origin: ownOrigin,
+        });
         continue;
       }
 
@@ -900,6 +971,7 @@ async function syncDeviceFilesInner(
     interface ParsedCandidate {
       entry: FileSystemHandle;
       data: any;
+      origin: string;
       isArtifactToClean: boolean;
       isSnapshot: boolean;
       isCanonicalForeignDevice: boolean;
@@ -938,6 +1010,7 @@ async function syncDeviceFilesInner(
         }
 
         const data = JSON.parse(text);
+        const origin = formatFileOrigin(data, entry.name, localDeviceId, localPlatform);
 
         const currentMtime = typeof file.lastModified === 'number' ? file.lastModified : 0;
         const currentSize = typeof file.size === 'number' && file.size > 0 ? file.size : text.length;
@@ -949,7 +1022,11 @@ async function syncDeviceFilesInner(
         // local IndexedDB is already the authoritative state of truth for this device ID.
         // (Snapshots are archive backups and are ALWAYS eligible for CRDT/LWW merge if not unchanged).
         if (!isSnapshot && data?.deviceId === localDeviceId) {
-          report.items.push({ name: entry.name, result: 'device file matched own ID (skipped)' });
+          report.items.push({
+            name: entry.name,
+            result: 'device file matched own ID (skipped)',
+            origin,
+          });
           syncMtimes[entry.name] = {
             mtime: currentMtime,
             size: currentSize,
@@ -984,6 +1061,7 @@ async function syncDeviceFilesInner(
         parsedCandidates.push({
           entry,
           data,
+          origin,
           isArtifactToClean,
           isSnapshot,
           isCanonicalForeignDevice,
@@ -1012,10 +1090,14 @@ async function syncDeviceFilesInner(
 
     for (const candidate of parsedCandidates) {
       if (!candidate.shouldMerge) {
-        report.items.push({ name: candidate.entry.name, result: 'unchanged since last sync (skipped)' });
+        report.items.push({
+          name: candidate.entry.name,
+          result: 'unchanged since last sync (skipped)',
+          origin: candidate.origin,
+        });
         continue;
       }
-      const { entry, data, isArtifactToClean, currentMtime, currentSize, currentExportedAt } = candidate;
+      const { entry, data, origin, isArtifactToClean, currentMtime, currentSize, currentExportedAt } = candidate;
 
       try {
         const mergeRes = await importAndMerge(data);
@@ -1023,6 +1105,7 @@ async function syncDeviceFilesInner(
           report.items.push({
             name: entry.name,
             result: `merged (${mergeRes.totalChanges} change${mergeRes.totalChanges === 1 ? '' : 's'})`,
+            origin,
           });
           filesProcessed++;
           totalMergedChanges += mergeRes.totalChanges;
@@ -1042,6 +1125,7 @@ async function syncDeviceFilesInner(
           report.items.push({
             name: entry.name,
             result: `FAILED merge: ${mergeRes.error || 'Unknown merge error'}`,
+            origin,
           });
           console.warn(`Error merging device sync file ${entry.name}:`, mergeRes.error);
         }
@@ -1050,6 +1134,7 @@ async function syncDeviceFilesInner(
         report.items.push({
           name: entry.name,
           result: `FAILED merge exception: ${e?.message || String(e)}`,
+          origin,
         });
         console.warn(`Error merging device sync file ${entry.name}:`, e);
       }

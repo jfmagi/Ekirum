@@ -85,6 +85,23 @@ export async function requestStoragePersistence(): Promise<boolean> {
 }
 
 /**
+ * Detect a concise human-readable platform label for the current device
+ * (e.g. 'mac', 'android', 'ios', 'windows', 'linux', or 'web') so backup
+ * and sync filenames clearly indicate which device generated them.
+ */
+export function getDevicePlatformLabel(): string {
+  if (typeof navigator === 'undefined') return 'web';
+  const ua = (navigator.userAgent || '').toLowerCase();
+  const platform = ((navigator as any).userAgentData?.platform || navigator.platform || '').toLowerCase();
+  if (ua.includes('android') || platform.includes('android')) return 'android';
+  if (ua.includes('iphone') || ua.includes('ipad') || ua.includes('ipod') || platform.includes('ios')) return 'ios';
+  if (ua.includes('macintosh') || ua.includes('mac os') || platform.includes('mac')) return 'mac';
+  if (ua.includes('win') || platform.includes('win')) return 'windows';
+  if (ua.includes('linux') || platform.includes('linux')) return 'linux';
+  return 'web';
+}
+
+/**
  * Get or create persistent device ID (UUID).
  */
 export async function getOrCreateDeviceId(): Promise<string> {
