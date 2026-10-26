@@ -476,6 +476,7 @@ export async function performDailyBackup(
     : 999;
 
   if (!force && hoursSince < 24) {
+    await pruneOldBackups(handle).catch(() => {});
     return false; // Backup is fresh (<24h)
   }
 
@@ -506,7 +507,7 @@ export async function performDailyBackup(
     // Compact tombstones older than 60 days to keep tables bounded
     await compactTombstones(60).catch((err) => console.warn('Tombstone compaction skipped:', err));
 
-    // Prune old daily backups (keep last 14)
+    // Prune old daily backups (keep last 2 as emergency rollback)
     await pruneOldBackups(handle);
 
     return true;
@@ -526,6 +527,31 @@ export async function performBackup(
   const deviceOk = await writeDeviceFile(handle, force);
   const dailyOk = await performDailyBackup(handle, force);
   return deviceOk || dailyOk;
+}
+
+/**
+ * Remove the current device's own device-*.json files from the sync folder
+ * before regenerating a new Device ID so retired device files don't clutter the folder.
+ */
+export async function removeOwnDeviceFilesFromFolder(): Promise<void> {
+  try {
+    const handle = await getSavedDirectoryHandle();
+    if (!handle || typeof (handle as any).removeEntry !== 'function') return;
+    const perm = await verifyHandlePermission(handle, false);
+    if (perm !== 'granted') return;
+    const deviceId = await getOrCreateDeviceId();
+    const entries = await getDirectoryEntries(handle);
+    for (const entry of entries) {
+      if (entry.kind === 'file') {
+        const c = classifySyncEntry(entry.name, deviceId);
+        if (c.kind === 'own-device' || c.kind === 'own-artifact') {
+          await (handle as any).removeEntry(entry.name).catch(() => {});
+        }
+      }
+    }
+  } catch {
+    // ignore cleanup errors
+  }
 }
 
 /**
@@ -595,7 +621,7 @@ async function getDirectoryEntries(handle: FileSystemDirectoryHandle): Promise<F
 }
 
 /**
- * Keep the last 14 backup-YYYY-MM-DD.json files, deleting older ones.
+ * Keep only the last 2 backup-*.json files as an emergency rollback, deleting older ones.
  */
 export async function pruneOldBackups(handle: FileSystemDirectoryHandle): Promise<number> {
   try {
@@ -611,7 +637,7 @@ export async function pruneOldBackups(handle: FileSystemDirectoryHandle): Promis
     // Sort ascending (YYYY-MM-DD lexicographical sorting matches chronological order)
     backupFiles.sort();
 
-    const maxKeep = 14;
+    const maxKeep = 2;
     let prunedCount = 0;
 
     if (backupFiles.length > maxKeep) {

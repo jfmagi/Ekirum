@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { db, regenerateDeviceId, getDevicePlatformLabel } from '../../lib/db';
+import { removeOwnDeviceFilesFromFolder } from '../../lib/backupService';
 import { formatLocalDate } from '../../lib/dateParser';
 import {
   Download,
@@ -332,6 +333,7 @@ export const BackupModal: React.FC = () => {
       )
     ) {
       try {
+        await removeOwnDeviceFilesFromFolder();
         await regenerateDeviceId();
         await refreshBackupStatus();
         const res = await triggerBackupAndSync(true, true);
@@ -506,7 +508,7 @@ export const BackupModal: React.FC = () => {
                         </span>
                       )}
                       {permission === 'granted' && backupStatus?.dailyBackupCount !== undefined && backupStatus.dailyBackupCount > 0 && (
-                        <span title="Daily backup archive snapshots (retains the last 14 days)">
+                        <span title="Daily backup archive snapshots (retains the last 2 as an emergency rollback)">
                           • {backupStatus.dailyBackupCount} daily snapshot{backupStatus.dailyBackupCount === 1 ? '' : 's'}
                         </span>
                       )}
