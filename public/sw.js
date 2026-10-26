@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ekirum-cache-v20';
+const CACHE_NAME = 'ekirum-cache-v21';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -49,10 +49,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (!url.protocol.startsWith('http')) return;
 
-  // 1. Navigation requests (HTML): Network first to ensure latest deployments load immediately on mobile
+  // 1. Navigation requests (HTML): Network first with no-cache to ensure latest deployments load immediately on mobile
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: 'no-cache' })
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const copy = networkResponse.clone();

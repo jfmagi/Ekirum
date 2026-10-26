@@ -278,19 +278,27 @@ export const BackupModal: React.FC = () => {
 
   const handleCheckForUpdates = async () => {
     setUpdateChecking(true);
-    if ('serviceWorker' in navigator) {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) {
-          await reg.update();
-        }
-      } catch (e) {
-        console.warn('Update check failed:', e);
+    setActionMessage('Clearing cache and checking for updates...');
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
       }
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) {
+          await reg.update();
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Update check failed:', e);
     }
     setTimeout(() => {
-      window.location.reload();
-    }, 350);
+      window.location.href = window.location.origin + window.location.pathname + '?_v=' + Date.now();
+    }, 800);
   };
 
   // 8. Manual Sync Trigger
