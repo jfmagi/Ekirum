@@ -153,6 +153,8 @@ assert(!fullHtml.includes('Grand Master'), 'In-progress achievement excluded fro
 assert(fullHtml.includes('Morning Meditation'), 'Habit is present');
 assert(fullHtml.includes('45 <span style="font-size:12px; font-weight:normal; color:var(--muted)">days</span>'), 'Longest habit streak stat displayed');
 assert(fullHtml.includes('data:image/png;base64,'), 'Avatar image is embedded');
+assert(!fullHtml.includes('hanko-seal'), 'No hanko seal in generated HTML');
+assert(!fullHtml.includes('駅'), 'No foreign kanji in generated HTML');
 console.log('Test 2: Full Character Dossier HTML generation: PASSED');
 
 // 4. Test Chosen Skills Filtering (User selects ONLY 1 skill)

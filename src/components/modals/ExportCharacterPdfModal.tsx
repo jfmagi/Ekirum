@@ -412,13 +412,8 @@ export const ExportCharacterPdfModal: React.FC = () => {
 
             {/* Scaled-down Parchment Sheet Preview Card */}
             <div className="w-full max-w-[460px] bg-white border border-stone-200/90 rounded-card shadow-placard p-6 space-y-5 text-left select-none relative overflow-hidden">
-              {/* Hanko Stamp simulation */}
-              <div className="absolute top-5 right-5 w-8 h-8 rounded border border-crimson/80 bg-crimson-light text-crimson flex flex-col items-center justify-center font-serif text-sm font-bold shadow-2xs rotate-[-3deg]">
-                <span>駅</span>
-              </div>
-
               {/* Title & Date */}
-              <div className="pr-10">
+              <div>
                 <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-crimson block mb-0.5">
                   Ekirum Record
                 </span>

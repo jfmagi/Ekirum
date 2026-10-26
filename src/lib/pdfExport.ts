@@ -190,46 +190,11 @@ export function generateCharacterDossierHtml(options: CharacterExportOptions): s
       position: relative;
     }
 
-    /* Japanese Hanko Seal */
-    .hanko-seal {
-      width: 48px;
-      height: 48px;
-      border: 2px solid var(--crimson);
-      border-radius: 6px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: var(--crimson);
-      background: var(--crimson-light);
-      position: absolute;
-      top: 40px;
-      right: 48px;
-      box-shadow: inset 0 0 0 1px var(--crimson);
-      transform: rotate(-3deg);
-    }
-
-    .hanko-kanji {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 20px;
-      font-weight: 700;
-      line-height: 1;
-    }
-
-    .hanko-sub {
-      font-size: 7px;
-      font-weight: 700;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      margin-top: 1px;
-    }
-
     /* Document Header */
     .doc-header {
       padding-bottom: 24px;
       border-bottom: 1px solid var(--border);
       margin-bottom: 28px;
-      padding-right: 70px;
     }
 
     .doc-pretitle {
@@ -640,12 +605,6 @@ export function generateCharacterDossierHtml(options: CharacterExportOptions): s
 
   <div class="sheet-wrapper">
     <div class="sheet">
-      <!-- Traditional Hanko Seal -->
-      <div class="hanko-seal">
-        <div class="hanko-kanji">駅</div>
-        <div class="hanko-sub">EKIRUM</div>
-      </div>
-
       <!-- Header -->
       <div class="doc-header">
         <div class="doc-pretitle">Personal Growth & Mastery Record</div>

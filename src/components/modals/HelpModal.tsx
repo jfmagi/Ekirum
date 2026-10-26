@@ -13,12 +13,14 @@ import {
   Laptop,
   Monitor,
   Smartphone,
+  FileDown,
 } from 'lucide-react';
 
 export const HelpModal: React.FC = () => {
   const helpModalOpen = useEkirumStore((s) => s.helpModalOpen);
   const setHelpModalOpen = useEkirumStore((s) => s.setHelpModalOpen);
-  const [activeTab, setActiveTab] = useState<'priorities' | 'syntax' | 'skills' | 'shortcuts' | 'install'>('priorities');
+  const setExportPdfModalOpen = useEkirumStore((s) => s.setExportPdfModalOpen);
+  const [activeTab, setActiveTab] = useState<'priorities' | 'syntax' | 'skills' | 'shortcuts' | 'install' | 'export'>('priorities');
 
   const close = () => {
     setHelpModalOpen(false);
@@ -112,6 +114,17 @@ export const HelpModal: React.FC = () => {
             }`}
           >
             Shortcuts
+          </button>
+          <button
+            onClick={() => setActiveTab('export')}
+            className={`min-h-[40px] px-3 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer flex-shrink-0 flex items-center gap-1.5 ${
+              activeTab === 'export'
+                ? 'border-crimson text-charcoal font-semibold'
+                : 'border-transparent text-stone-500 hover:text-charcoal'
+            }`}
+          >
+            <FileDown size={13} className={activeTab === 'export' ? 'text-crimson' : 'text-stone-400'} />
+            Export to PDF
           </button>
           <button
             onClick={() => setActiveTab('install')}
@@ -528,6 +541,94 @@ export const HelpModal: React.FC = () => {
                     <span><strong>Fast Access</strong>: Quick switch with ⌘Tab or Alt-Tab</span>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: EXPORT CHARACTER & SKILLS TO PDF */}
+          {activeTab === 'export' && (
+            <div className="space-y-5 font-sans">
+              <div className="bg-stone-50/80 border border-stone-200/90 rounded-card p-4 space-y-2">
+                <div className="flex items-center gap-2 text-charcoal font-serif text-base font-semibold">
+                  <FileDown size={17} className="text-crimson" />
+                  <span>Character Dossier & Skill Record Export</span>
+                </div>
+                <p className="text-xs text-stone-600 leading-relaxed">
+                  Export your character profile, rank, level, total experience, and any combination of your chosen skills into a clean, printable PDF document or offline HTML record.
+                </p>
+              </div>
+
+              {/* Action Banner Card */}
+              <div className="p-4 bg-white border border-stone-200/90 rounded-card shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h4 className="text-xs font-serif font-semibold text-charcoal">
+                    Generate Your Printable Dossier
+                  </h4>
+                  <p className="text-[11px] text-stone-500">
+                    Choose which skills to include, toggle sections, preview live, and print or save to vector PDF.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    close();
+                    setExportPdfModalOpen(true);
+                  }}
+                  className="px-4 py-2 bg-charcoal hover:bg-stone-800 text-white text-xs font-medium rounded-mac shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 shrink-0"
+                >
+                  <FileDown size={14} className="text-amber-400" />
+                  <span>Open PDF Exporter</span>
+                </button>
+              </div>
+
+              {/* Feature Highlights Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="p-3.5 bg-stone-50/50 border border-stone-200/80 rounded-card space-y-1.5">
+                  <div className="text-xs font-semibold text-charcoal flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-crimson" />
+                    <span>Skill Selection</span>
+                  </div>
+                  <p className="text-[11px] text-stone-600 leading-relaxed">
+                    Select all skills or hand-pick specific masteries you want to highlight, along with their level badges, rank titles, and progress bars.
+                  </p>
+                </div>
+
+                <div className="p-3.5 bg-stone-50/50 border border-stone-200/80 rounded-card space-y-1.5">
+                  <div className="text-xs font-semibold text-charcoal flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-gold" />
+                    <span>True Vector Output</span>
+                  </div>
+                  <p className="text-[11px] text-stone-600 leading-relaxed">
+                    Formatted for standard A4 and Letter paper. Uses the system print engine to output crisp, selectable text with zero pixelation at any zoom level.
+                  </p>
+                </div>
+
+                <div className="p-3.5 bg-stone-50/50 border border-stone-200/80 rounded-card space-y-1.5">
+                  <div className="text-xs font-semibold text-charcoal flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-stone-500" />
+                    <span>Section Customization</span>
+                  </div>
+                  <p className="text-[11px] text-stone-600 leading-relaxed">
+                    Toggle aggregate stats, unlocked milestone honors, daily habit consistency, and add an optional custom focus motto or personal dedication.
+                  </p>
+                </div>
+
+                <div className="p-3.5 bg-stone-50/50 border border-stone-200/80 rounded-card space-y-1.5">
+                  <div className="text-xs font-semibold text-charcoal flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                    <span>100% Private & Offline</span>
+                  </div>
+                  <p className="text-[11px] text-stone-600 leading-relaxed">
+                    Your data never touches any remote server or external PDF rendering service. Generated directly inside your local browser.
+                  </p>
+                </div>
+              </div>
+
+              {/* Pro Tip */}
+              <div className="p-3 bg-amber-50/60 border border-amber-200/70 rounded-mac text-[11px] text-amber-900 flex items-start gap-2">
+                <Sparkles size={14} className="text-amber-700 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Tip:</strong> In your browser's Print window, select <em>Destination: Save as PDF</em> and verify <em>Background graphics</em> is checked to preserve full color progress bars and styling.
+                </span>
               </div>
             </div>
           )}
