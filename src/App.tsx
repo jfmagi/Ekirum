@@ -19,6 +19,7 @@ import { BackupModal } from './components/modals/BackupModal';
 import { CelebrationModal } from './components/modals/CelebrationModal';
 import { HelpModal } from './components/modals/HelpModal';
 import { OnboardingModal } from './components/modals/OnboardingModal';
+import { ExportCharacterPdfModal } from './components/modals/ExportCharacterPdfModal';
 import { SyncBanner } from './components/common/SyncBanner';
 import { X, AlertTriangle } from 'lucide-react';
 
@@ -51,6 +52,7 @@ export const App: React.FC = () => {
     backupModalOpen,
     celebration,
     helpModalOpen,
+    exportPdfModalOpen,
     onboardingModalOpen,
   } = useEkirumStore(
     useShallow((s) => ({
@@ -79,6 +81,7 @@ export const App: React.FC = () => {
       backupModalOpen: s.backupModalOpen,
       celebration: s.celebration,
       helpModalOpen: s.helpModalOpen,
+      exportPdfModalOpen: s.exportPdfModalOpen,
       onboardingModalOpen: s.onboardingModalOpen,
     }))
   );
@@ -325,6 +328,9 @@ export const App: React.FC = () => {
 
       {/* First-Time Welcome & Character Setup Modal */}
       {onboardingModalOpen && <OnboardingModal />}
+
+      {/* Character Profile & Chosen Skills PDF Export Modal */}
+      {exportPdfModalOpen && <ExportCharacterPdfModal />}
     </div>
   );
 };

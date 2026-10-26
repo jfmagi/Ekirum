@@ -38,3 +38,12 @@ export function computeUserLevelAndRank(totalXp: number): { level: number; rank:
   return { level, rank };
 }
 
+export function getXpRequiredForLevel(level: number): number {
+  return (level - 1) * (level - 1) * 20;
+}
+
+export function getXpRequiredForNextLevel(level: number): number {
+  return level * level * 20;
+}
+
+

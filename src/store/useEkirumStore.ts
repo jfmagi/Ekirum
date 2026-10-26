@@ -209,6 +209,7 @@ export interface EkirumStore {
   editingProjectId: string | null;
   backupModalOpen: boolean;
   helpModalOpen: boolean;
+  exportPdfModalOpen: boolean;
   newHabitModalOpen: boolean;
   editingHabitId: string | null;
   celebration: CelebrationState | null;
@@ -235,6 +236,7 @@ export interface EkirumStore {
   setEditingProjectId: (id: string | null) => void;
   setBackupModalOpen: (open: boolean) => void;
   setHelpModalOpen: (open: boolean) => void;
+  setExportPdfModalOpen: (open: boolean) => void;
   setNewHabitModalOpen: (open: boolean) => void;
   setEditingHabitId: (id: string | null) => void;
   setMobileSidebarOpen: (open: boolean) => void;
@@ -443,6 +445,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         editingProjectId: null,
         backupModalOpen: false,
         helpModalOpen: false,
+        exportPdfModalOpen: false,
         newHabitModalOpen: false,
         editingHabitId: null,
         celebration: null,
@@ -481,6 +484,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       setEditingProjectId: (id) => set({ editingProjectId: id }),
       setBackupModalOpen: (open) => set({ backupModalOpen: open }),
       setHelpModalOpen: (open) => set({ helpModalOpen: open }),
+      setExportPdfModalOpen: (open) => set({ exportPdfModalOpen: open }),
       setNewHabitModalOpen: (open) => set({ newHabitModalOpen: open }),
       setEditingHabitId: (id) => set({ editingHabitId: id }),
       setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),

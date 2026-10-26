@@ -13,6 +13,7 @@ import {
   Folder,
   ArrowDown,
   ArrowUp,
+  FileDown,
 } from 'lucide-react';
 import { DAILY_XP_CAP } from '../../types';
 import { formatLocalDate } from '../../lib/dateParser';
@@ -31,6 +32,7 @@ export const CharacterView: React.FC = () => {
     tasks,
     setNewProjectModalOpen,
     evaluateAndSyncAchievements,
+    setExportPdfModalOpen,
   } = useEkirumStore(
     useShallow((s) => ({
       user: s.user,
@@ -41,6 +43,7 @@ export const CharacterView: React.FC = () => {
       tasks: s.tasks,
       setNewProjectModalOpen: s.setNewProjectModalOpen,
       evaluateAndSyncAchievements: s.evaluateAndSyncAchievements,
+      setExportPdfModalOpen: s.setExportPdfModalOpen,
     }))
   );
 
@@ -289,9 +292,20 @@ export const CharacterView: React.FC = () => {
                 )}
               </div>
 
-              {/* Level indicator */}
-              <div className="font-serif text-xs sm:text-sm text-stone-500 font-medium">
-                Level {user.ekirumLevel ?? 1}
+              {/* Level indicator & Export PDF action */}
+              <div className="flex items-center gap-3 pt-1 flex-wrap">
+                <span className="font-serif text-xs sm:text-sm text-stone-500 font-medium">
+                  Level {user.ekirumLevel ?? 1}
+                </span>
+                <span className="text-stone-300">•</span>
+                <button
+                  onClick={() => setExportPdfModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-sans font-medium text-stone-700 hover:text-charcoal bg-stone-100 hover:bg-stone-200/80 border border-stone-200/90 rounded-mac transition-all cursor-pointer shadow-2xs"
+                  title="Export character profile and chosen skills to printable PDF"
+                >
+                  <FileDown size={13} className="text-stone-500" />
+                  <span>Export PDF</span>
+                </button>
               </div>
             </div>
           </div>

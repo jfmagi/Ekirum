@@ -15,6 +15,7 @@ import {
   HardDrive,
   HelpCircle,
   BookOpen,
+  FileDown,
 } from 'lucide-react';
 
 type PaletteItem = {
@@ -42,6 +43,7 @@ const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({ onClose }) 
     setNewHabitModalOpen,
     setBackupModalOpen,
     setHelpModalOpen,
+    setExportPdfModalOpen,
     toggleSound,
   } = useEkirumStore(
     useShallow((s) => ({
@@ -55,6 +57,7 @@ const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({ onClose }) 
       setNewHabitModalOpen: s.setNewHabitModalOpen,
       setBackupModalOpen: s.setBackupModalOpen,
       setHelpModalOpen: s.setHelpModalOpen,
+      setExportPdfModalOpen: s.setExportPdfModalOpen,
       toggleSound: s.toggleSound,
     }))
   );
@@ -156,6 +159,17 @@ const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({ onClose }) 
         action: () => {
           onClose();
           setNewProjectModalOpen(true);
+        },
+      },
+      {
+        id: 'act-export-pdf',
+        type: 'action',
+        title: 'Export Character to PDF',
+        subtitle: 'Export character profile and chosen skills as a printable dossier',
+        icon: <FileDown size={14} className="text-stone-600" />,
+        action: () => {
+          onClose();
+          setExportPdfModalOpen(true);
         },
       },
       {
