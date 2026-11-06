@@ -171,8 +171,7 @@ export const DefusionView: React.FC = () => {
 
     if (burnOnDefuse) {
       setIsBurningInComposer(true);
-      // Therapeutic breath pause during ember dissolution
-      await new Promise((resolve) => setTimeout(resolve, 1800));
+      await new Promise((resolve) => setTimeout(resolve, 800));
       setIsSubmitting(true);
       try {
         await defuseThought({
@@ -186,7 +185,7 @@ export const DefusionView: React.FC = () => {
         setJustDefusedMode('burned');
         setTimeout(() => {
           setJustDefusedMode((prev) => (prev === 'burned' ? null : prev));
-        }, 3200);
+        }, 2400);
       } finally {
         setIsSubmitting(false);
         setIsBurningInComposer(false);
@@ -204,7 +203,7 @@ export const DefusionView: React.FC = () => {
         setJustDefusedMode('sealed');
         setTimeout(() => {
           setJustDefusedMode((prev) => (prev === 'sealed' ? null : prev));
-        }, 2500);
+        }, 2400);
       } finally {
         setIsSubmitting(false);
       }
@@ -475,19 +474,6 @@ export const DefusionView: React.FC = () => {
               }`}
             />
 
-            {/* Calming Therapeutic Breath Pause during Ember Dissolution */}
-            {isBurningInComposer && (
-              <div className="flex items-center justify-center gap-2.5 py-3 px-4 rounded-mac bg-stone-100/90 border border-stone-200/80 text-stone-700 animate-fade-in">
-                <div className="relative flex items-center justify-center w-5 h-5">
-                  <div className="w-5 h-5 rounded-full bg-crimson/20 animate-breathing-glow absolute" />
-                  <Flame size={13} className="text-crimson relative z-10" />
-                </div>
-                <span className="text-xs font-serif italic text-stone-700">
-                  Releasing thought to the ether… Exhale gently.
-                </span>
-              </div>
-            )}
-
             {/* Composer Footer: Project Link, Burn Toggle, Submit */}
             <div className="pt-3 border-t border-stone-200/60 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -538,16 +524,16 @@ export const DefusionView: React.FC = () => {
                 )}
 
                 {justDefusedMode && (
-                  <span className="text-xs font-serif italic text-stone-600 flex items-center gap-1.5 animate-fade-in">
+                  <span className="text-xs font-sans text-stone-600 flex items-center gap-1.5 animate-fade-in">
                     {justDefusedMode === 'burned' ? (
                       <>
                         <Flame size={13} className="text-crimson" />
-                        <span>Burned to ash — the mind is clear.</span>
+                        <span>Defused & burned</span>
                       </>
                     ) : (
                       <>
                         <Check size={13} className="text-emerald-700" />
-                        <span>Defused & sealed safely.</span>
+                        <span>Defused & sealed</span>
                       </>
                     )}
                   </span>
