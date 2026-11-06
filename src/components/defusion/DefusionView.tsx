@@ -317,22 +317,13 @@ export const DefusionView: React.FC = () => {
     <div className="flex-1 h-full overflow-y-auto px-4 sm:px-8 py-6 pb-28 md:pb-12 bg-[#FBFBF9]">
       <div className="max-w-3xl mx-auto space-y-7">
         {/* Header */}
-        <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-stone-200/80 pb-5">
-          <div>
-            <div className="flex items-center gap-2 text-[11px] font-sans uppercase tracking-[0.18em] text-stone-500 font-semibold mb-1">
-              <Wind size={13} className="text-crimson" />
-              <span>Cognitive Defusion & Sealed Vault</span>
-            </div>
-            <h1 className="font-serif text-2xl sm:text-3xl font-semibold text-charcoal tracking-tight">
-              Defusion Sanctuary
-            </h1>
-            <p className="text-xs text-stone-600 mt-1 max-w-xl leading-relaxed">
-              Step back from tangled thoughts by writing them down and releasing them. Thoughts are sealed with one-way encryption by default, or burned to ash on release.
-            </p>
-          </div>
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200/80 pb-4">
+          <p className="text-xs text-stone-600 max-w-xl leading-relaxed">
+            Step back from tangled thoughts by writing them down and releasing them. Thoughts are sealed with one-way encryption by default, or burned to ash on release.
+          </p>
 
           {/* Vault Status Pill & Unlock / Lock Controls */}
-          <div className="flex items-center gap-2 self-start sm:self-end">
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
             {isUnlocked ? (
               <>
                 <button
