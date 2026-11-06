@@ -160,7 +160,7 @@ export const HelpModal: React.FC = () => {
                     </span>
                   </div>
                   <p className="text-xs text-stone-600 font-sans leading-relaxed">
-                    Most difficult or demanding tasks.
+                    Most difficult or urgent tasks.
                   </p>
                 </div>
 
