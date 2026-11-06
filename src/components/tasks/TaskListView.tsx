@@ -186,7 +186,10 @@ export const TaskListView: React.FC = () => {
     <div className="max-w-3xl mx-auto w-full px-3.5 sm:px-6 py-4 sm:py-8">
       {/* View Title */}
       <div className="flex items-center justify-between mb-4 sm:mb-6">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
+          {(currentView === 'today' || currentView === 'completed') && (
+            <span className="w-2 h-2 rounded-full bg-crimson flex-shrink-0" />
+          )}
           <h2 className="font-serif text-xl sm:text-2xl text-charcoal font-medium tracking-tight">
             {getViewTitle()}
           </h2>

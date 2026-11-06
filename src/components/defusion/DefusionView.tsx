@@ -346,7 +346,7 @@ export const DefusionView: React.FC = () => {
     <div className="flex-1 h-full overflow-y-auto px-4 sm:px-8 py-6 pb-28 md:pb-12 bg-[#FBFBF9]">
       <div className="max-w-3xl mx-auto space-y-7">
         {/* Header */}
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-stone-200/80">
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-crimson" />
