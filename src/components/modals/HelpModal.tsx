@@ -145,7 +145,7 @@ export const HelpModal: React.FC = () => {
           {activeTab === 'priorities' && (
             <div className="space-y-4">
               <div className="bg-stone-50/70 border border-stone-200/80 rounded-card p-3.5 text-xs text-stone-700 leading-relaxed font-sans">
-                Priorities determine task urgency, visual spotlight badges, and <strong>Skill XP rewards</strong> when completed. You can type <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p1</code>, <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p2</code>, <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p3</code>, or <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p4</code> directly into the Quick Add bar.
+                Priorities reflect the gradation of how difficult or urgent a task is. Type <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p1</code>, <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p2</code>, <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p3</code>, or <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p4</code> in the Quick Add bar.
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -160,10 +160,10 @@ export const HelpModal: React.FC = () => {
                     </span>
                   </div>
                   <h4 className="font-serif text-sm font-semibold text-charcoal">
-                    High / Critical Focus
+                    Highest Urgency & Difficulty
                   </h4>
                   <p className="text-xs text-stone-600 font-sans leading-relaxed">
-                    Reserved for non-negotiable, high-impact tasks that must be done today. Grants highest bonus skill XP upon completion.
+                    Most demanding, complex, or time-critical tasks.
                   </p>
                 </div>
 
@@ -178,10 +178,10 @@ export const HelpModal: React.FC = () => {
                     </span>
                   </div>
                   <h4 className="font-serif text-sm font-semibold text-charcoal">
-                    Important Milestones
+                    Moderate Urgency & Difficulty
                   </h4>
                   <p className="text-xs text-stone-600 font-sans leading-relaxed">
-                    Significant tasks that advance core projects, but without immediate crisis urgency. Awards +3 bonus XP.
+                    Important tasks carrying moderate effort or upcoming deadlines.
                   </p>
                 </div>
 
@@ -196,10 +196,10 @@ export const HelpModal: React.FC = () => {
                     </span>
                   </div>
                   <h4 className="font-serif text-sm font-semibold text-charcoal">
-                    Standard Tasks
+                    Low Urgency & Difficulty
                   </h4>
                   <p className="text-xs text-stone-600 font-sans leading-relaxed">
-                    Everyday administrative, maintenance, or routine work. Contributes baseline progress to your character.
+                    Everyday, routine tasks with lower effort and flexible timing.
                   </p>
                 </div>
 
@@ -214,10 +214,10 @@ export const HelpModal: React.FC = () => {
                     </span>
                   </div>
                   <h4 className="font-serif text-sm font-semibold text-charcoal">
-                    Default / Unassigned
+                    Minimal / Baseline
                   </h4>
                   <p className="text-xs text-stone-600 font-sans leading-relaxed">
-                    Unprioritized items added without an explicit priority tag.
+                    Casual or unassigned tasks with no urgency or difficulty.
                   </p>
                 </div>
               </div>
