@@ -212,3 +212,49 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
+
+/* Defusion Cathartic Burning & Ritual Animations */
+@keyframes ember-burn {
+  0% {
+    opacity: 1;
+    filter: blur(0px);
+    color: var(--color-charcoal);
+    transform: translateY(0);
+  }
+  35% {
+    color: var(--color-crimson);
+    filter: blur(1.5px) drop-shadow(0 0 6px rgba(139, 21, 40, 0.45));
+    transform: translateY(-2px);
+  }
+  70% {
+    color: var(--color-gold);
+    filter: blur(3.5px) drop-shadow(0 0 12px rgba(184, 134, 11, 0.6));
+    transform: translateY(-6px);
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+    filter: blur(7px);
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes breathing-glow {
+  0%, 100% {
+    transform: scale(0.96);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 0.85;
+  }
+}
+
+.animate-ember-burn {
+  animation: ember-burn 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-breathing-glow {
+  animation: breathing-glow 2.2s ease-in-out infinite;
+}
+

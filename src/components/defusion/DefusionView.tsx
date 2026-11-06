@@ -56,7 +56,12 @@ export const DefusionView: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [burnOnDefuse, setBurnOnDefuse] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isBurningInComposer, setIsBurningInComposer] = useState(false);
   const [justDefusedMode, setJustDefusedMode] = useState<'sealed' | 'burned' | null>(null);
+
+  // Archive interactions
+  const [burnConfirmId, setBurnConfirmId] = useState<string | null>(null);
+  const [burningCardId, setBurningCardId] = useState<string | null>(null);
 
   // Filter state
   const [filterMode, setFilterMode] = useState<'all' | 'sealed' | 'burned'>('all');
@@ -162,25 +167,56 @@ export const DefusionView: React.FC = () => {
   const handleDefuseSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const trimmed = thoughtText.trim();
-    if (!trimmed || isSubmitting) return;
+    if (!trimmed || isSubmitting || isBurningInComposer) return;
 
-    setIsSubmitting(true);
-    try {
-      const mode = burnOnDefuse ? 'burned' : 'sealed';
-      await defuseThought({
-        text: trimmed,
-        prefix: selectedPrefix || undefined,
-        projectId: selectedProjectId || undefined,
-        burned: burnOnDefuse,
-      });
-      setThoughtText('');
-      setJustDefusedMode(mode);
-      setTimeout(() => {
-        setJustDefusedMode((prev) => (prev === mode ? null : prev));
-      }, 2400);
-    } finally {
-      setIsSubmitting(false);
+    if (burnOnDefuse) {
+      setIsBurningInComposer(true);
+      // Therapeutic breath pause during ember dissolution
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+      setIsSubmitting(true);
+      try {
+        await defuseThought({
+          text: trimmed,
+          prefix: selectedPrefix || undefined,
+          projectId: selectedProjectId || undefined,
+          burned: true,
+        });
+        setThoughtText('');
+        setIsBurningInComposer(false);
+        setJustDefusedMode('burned');
+        setTimeout(() => {
+          setJustDefusedMode((prev) => (prev === 'burned' ? null : prev));
+        }, 3200);
+      } finally {
+        setIsSubmitting(false);
+        setIsBurningInComposer(false);
+      }
+    } else {
+      setIsSubmitting(true);
+      try {
+        await defuseThought({
+          text: trimmed,
+          prefix: selectedPrefix || undefined,
+          projectId: selectedProjectId || undefined,
+          burned: false,
+        });
+        setThoughtText('');
+        setJustDefusedMode('sealed');
+        setTimeout(() => {
+          setJustDefusedMode((prev) => (prev === 'sealed' ? null : prev));
+        }, 2500);
+      } finally {
+        setIsSubmitting(false);
+      }
     }
+  };
+
+  const handleConfirmBurnArchived = async (entryId: string) => {
+    setBurningCardId(entryId);
+    setBurnConfirmId(null);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await burnDefusionEntry(entryId);
+    setBurningCardId(null);
   };
 
   const handleOpenUnlockModal = () => {
@@ -307,12 +343,6 @@ export const DefusionView: React.FC = () => {
     }
   };
 
-  const getCipherPreview = (ciphertext?: string, id?: string) => {
-    const raw = (ciphertext || id || 'sealed').replace(/[^a-zA-Z0-9]/g, '');
-    const slice = raw.slice(0, 24).padEnd(24, 'x');
-    return `${slice.slice(0, 6)} •••• ${slice.slice(6, 12)} •••• ${slice.slice(12, 18)}`;
-  };
-
   return (
     <div className="flex-1 h-full overflow-y-auto px-4 sm:px-8 py-6 pb-28 md:pb-12 bg-[#FBFBF9]">
       <div className="max-w-3xl mx-auto space-y-7">
@@ -359,17 +389,17 @@ export const DefusionView: React.FC = () => {
 
         {/* Auto-lock Notice Banner when Unlocked */}
         {isUnlocked && (
-          <div className="bg-amber-50/90 border border-amber-200/80 rounded-mac px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs text-amber-900">
+          <div className="bg-stone-100/90 border border-stone-200/90 rounded-mac px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs text-stone-700">
             <div className="flex items-center gap-2">
-              <Clock size={14} className="text-amber-700 flex-shrink-0" />
+              <Clock size={13} className="text-stone-500 flex-shrink-0" />
               <span>
-                Vault is unlocked for reading. It will automatically re-lock after 5 minutes of inactivity or when you leave this tab.
+                Vault is unlocked for reading. Re-locks after 5 minutes of inactivity or when leaving this view.
               </span>
             </div>
             <button
               type="button"
               onClick={lockVault}
-              className="text-[11px] font-semibold underline hover:text-amber-950 flex-shrink-0 cursor-pointer"
+              className="text-xs font-medium text-stone-700 underline hover:text-charcoal flex-shrink-0 cursor-pointer"
             >
               Lock now
             </button>
@@ -406,7 +436,7 @@ export const DefusionView: React.FC = () => {
                     key={prefix}
                     type="button"
                     onClick={() => setSelectedPrefix(isSelected ? '' : prefix)}
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-sans transition-all cursor-pointer border ${
+                    className={`px-3 py-1.5 min-h-[32px] rounded-full text-xs font-sans transition-all cursor-pointer border flex items-center ${
                       isSelected
                         ? 'bg-charcoal text-[#FBFBF9] border-charcoal font-medium shadow-2xs'
                         : 'bg-white text-stone-600 border-stone-200/80 hover:border-stone-300 hover:text-charcoal'
@@ -422,13 +452,14 @@ export const DefusionView: React.FC = () => {
           {/* Thought Input Area */}
           <form onSubmit={handleDefuseSubmit} className="p-4 space-y-3.5">
             {selectedPrefix && (
-              <div className="font-serif italic text-sm text-stone-600 pl-2 border-l-2 border-gold/70">
+              <div className="font-serif italic text-sm text-stone-600 pl-2.5 border-l-2 border-gold/70">
                 {selectedPrefix}
               </div>
             )}
 
             <textarea
               value={thoughtText}
+              disabled={isSubmitting || isBurningInComposer}
               onChange={(e) => setThoughtText(e.target.value.slice(0, MAX_LENGTHS.DEFUSION_TEXT))}
               onKeyDown={(e) => {
                 if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -439,8 +470,23 @@ export const DefusionView: React.FC = () => {
               rows={4}
               placeholder="Dump the thought occupying your mind… (Cmd/Ctrl + Enter to defuse)"
               aria-label="Thought to defuse"
-              className="w-full resize-y min-h-[96px] bg-transparent text-sm text-charcoal placeholder:text-stone-400 focus:outline-none leading-relaxed font-sans"
+              className={`w-full resize-y min-h-[96px] bg-transparent text-sm text-charcoal placeholder:text-stone-500 focus:outline-none focus-visible:ring-1 focus-visible:ring-stone-400 rounded-mac p-1 leading-relaxed font-sans transition-all ${
+                isBurningInComposer ? 'animate-ember-burn pointer-events-none select-none' : ''
+              }`}
             />
+
+            {/* Calming Therapeutic Breath Pause during Ember Dissolution */}
+            {isBurningInComposer && (
+              <div className="flex items-center justify-center gap-2.5 py-3 px-4 rounded-mac bg-stone-100/90 border border-stone-200/80 text-stone-700 animate-fade-in">
+                <div className="relative flex items-center justify-center w-5 h-5">
+                  <div className="w-5 h-5 rounded-full bg-crimson/20 animate-breathing-glow absolute" />
+                  <Flame size={13} className="text-crimson relative z-10" />
+                </div>
+                <span className="text-xs font-serif italic text-stone-700">
+                  Releasing thought to the ether… Exhale gently.
+                </span>
+              </div>
+            )}
 
             {/* Composer Footer: Project Link, Burn Toggle, Submit */}
             <div className="pt-3 border-t border-stone-200/60 flex flex-wrap items-center justify-between gap-3">
@@ -468,7 +514,7 @@ export const DefusionView: React.FC = () => {
                   type="button"
                   onClick={() => setBurnOnDefuse((prev) => !prev)}
                   aria-pressed={burnOnDefuse}
-                  className={`px-2.5 py-1.5 rounded-mac text-xs font-sans flex items-center gap-1.5 border transition-all cursor-pointer ${
+                  className={`px-3 py-1.5 min-h-[32px] rounded-mac text-xs font-sans flex items-center gap-1.5 border transition-all cursor-pointer ${
                     burnOnDefuse
                       ? 'bg-crimson/10 text-crimson border-crimson/30 font-medium'
                       : 'bg-stone-100/80 text-stone-600 border-stone-200/80 hover:text-charcoal'
@@ -485,17 +531,32 @@ export const DefusionView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-3 ml-auto">
+                {thoughtText.length > 0 && !isBurningInComposer && (
+                  <span className="text-[11px] font-mono text-stone-400 self-center hidden sm:inline">
+                    {MAX_LENGTHS.DEFUSION_TEXT - thoughtText.length}
+                  </span>
+                )}
+
                 {justDefusedMode && (
-                  <span className="text-xs font-sans text-stone-600 flex items-center gap-1 animate-fade-in">
-                    <Check size={13} className="text-emerald-700" />
-                    <span>{justDefusedMode === 'burned' ? 'Defused & burned to ash' : 'Defused & sealed'}</span>
+                  <span className="text-xs font-serif italic text-stone-600 flex items-center gap-1.5 animate-fade-in">
+                    {justDefusedMode === 'burned' ? (
+                      <>
+                        <Flame size={13} className="text-crimson" />
+                        <span>Burned to ash — the mind is clear.</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check size={13} className="text-emerald-700" />
+                        <span>Defused & sealed safely.</span>
+                      </>
+                    )}
                   </span>
                 )}
 
                 <button
                   type="submit"
-                  disabled={!thoughtText.trim() || isSubmitting}
-                  className={`px-4 py-2 rounded-mac text-xs font-sans font-semibold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs ${
+                  disabled={!thoughtText.trim() || isSubmitting || isBurningInComposer}
+                  className={`px-4 py-2 min-h-[36px] rounded-mac text-xs font-sans font-semibold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs ${
                     burnOnDefuse
                       ? 'bg-crimson text-white hover:bg-crimson/90'
                       : 'bg-charcoal text-[#FBFBF9] hover:bg-stone-800'
@@ -594,7 +655,7 @@ export const DefusionView: React.FC = () => {
                         : isUnlocked && decrypted
                           ? 'bg-white border-stone-300/90 shadow-2xs'
                           : 'bg-white/80 border-stone-200/80'
-                    }`}
+                    } ${burningCardId === entry.id ? 'animate-ember-burn pointer-events-none' : ''}`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-500 font-sans">
@@ -612,35 +673,55 @@ export const DefusionView: React.FC = () => {
 
                       <div className="flex items-center gap-1.5">
                         {entry.burned ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-medium bg-stone-200/70 text-stone-600">
-                            <Flame size={10} className="text-crimson/80" />
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-sans font-medium bg-stone-200/70 text-stone-600">
+                            <Flame size={11} className="text-crimson/80" />
                             <span>Burned</span>
                           </span>
                         ) : isUnlocked ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => void burnDefusionEntry(entry.id)}
-                              className="px-2 py-1 rounded text-[11px] font-sans text-stone-500 hover:text-crimson hover:bg-crimson/5 transition-colors flex items-center gap-1 cursor-pointer"
-                              title="Burn this thought (permanently erase encrypted text)"
-                            >
-                              <Flame size={12} />
-                              <span>Burn</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteDefusionEntry(entry.id)}
-                              className="p-1 rounded text-stone-400 hover:text-crimson hover:bg-stone-100 transition-colors cursor-pointer"
-                              title="Delete entry"
-                              aria-label="Delete entry"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </>
+                          burnConfirmId === entry.id ? (
+                            <div className="flex items-center gap-1.5 bg-crimson/10 border border-crimson/25 px-2.5 py-1 rounded-mac text-xs font-sans text-crimson animate-fade-in">
+                              <span className="font-medium">Burn to ash?</span>
+                              <button
+                                type="button"
+                                onClick={() => void handleConfirmBurnArchived(entry.id)}
+                                className="font-semibold underline hover:text-crimson-hover cursor-pointer px-1 py-0.5"
+                              >
+                                Yes
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setBurnConfirmId(null)}
+                                className="text-stone-500 hover:text-charcoal cursor-pointer px-1 py-0.5 ml-0.5"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setBurnConfirmId(entry.id)}
+                                className="px-2.5 py-1 rounded text-xs font-sans text-stone-600 hover:text-crimson hover:bg-crimson/5 transition-colors flex items-center gap-1.5 cursor-pointer min-h-[32px]"
+                                title="Burn this thought (permanently erase encrypted text)"
+                              >
+                                <Flame size={12} className="text-crimson/70" />
+                                <span>Burn</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteDefusionEntry(entry.id)}
+                                className="p-1.5 rounded text-stone-500 hover:text-crimson hover:bg-stone-100 transition-colors cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
+                                title="Delete entry"
+                                aria-label="Delete entry"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </>
+                          )
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-medium bg-stone-100 text-stone-600 border border-stone-200/70">
-                            <ShieldCheck size={11} className="text-stone-500" />
-                            <span>Sealed · AES-256</span>
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-sans font-medium bg-stone-100 text-stone-600 border border-stone-200/70">
+                            <ShieldCheck size={12} className="text-stone-500" />
+                            <span>Sealed</span>
                           </span>
                         )}
                       </div>
@@ -664,19 +745,22 @@ export const DefusionView: React.FC = () => {
                           </p>
                         </div>
                       ) : (
-                        <p className="text-xs text-stone-400 italic font-sans">
+                        <p className="text-xs text-stone-600 italic font-sans">
                           {isDecrypting ? 'Decrypting sealed thought…' : 'Unable to decrypt entry with current key.'}
                         </p>
                       )
                     ) : (
-                      <div className="flex items-center justify-between gap-2 pt-0.5">
-                        <code className="text-[11px] font-mono text-stone-400 tracking-wider select-none truncate">
-                          {getCipherPreview(entry.ciphertext, entry.id)}
-                        </code>
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <div className="flex items-center gap-2 text-stone-500 select-none">
+                          <Lock size={12} className="text-stone-400" />
+                          <span className="font-serif italic text-xs text-stone-600">
+                            Sealed thought reflection
+                          </span>
+                        </div>
                         <button
                           type="button"
                           onClick={handleOpenUnlockModal}
-                          className="text-[11px] font-sans text-stone-500 hover:text-charcoal underline cursor-pointer flex-shrink-0"
+                          className="text-xs font-sans text-stone-600 hover:text-charcoal underline cursor-pointer flex-shrink-0"
                         >
                           Unlock to read
                         </button>
@@ -732,10 +816,10 @@ export const DefusionView: React.FC = () => {
 
             <p className="text-xs text-stone-600 leading-relaxed">
               {passphraseModalMode === 'setup'
-                ? 'Choose a passphrase to wrap your private decryption key (PBKDF2 + AES-256-GCM). You will never need to enter it to dump thoughts—only when you want to unlock and read them.'
+                ? 'Choose a personal passphrase to protect your private decryption key. You never need it to dump or seal thoughts—only when you choose to unlock and read your vault. Because your reflections are end-to-end encrypted, this passphrase cannot be recovered if forgotten.'
                 : passphraseModalMode === 'change'
-                  ? 'Re-wrap your vault key with a new passphrase. All existing sealed thoughts will remain accessible with your new passphrase.'
-                  : 'Enter your passphrase to temporarily decrypt sealed thoughts in memory. The vault will automatically re-lock after 5 minutes of inactivity or when you leave this tab.'}
+                  ? 'Update your vault passphrase. All existing sealed thoughts will seamlessly carry over to your new passphrase.'
+                  : 'Enter your passphrase to temporarily unlock and read your sealed thoughts. The vault automatically re-locks after 5 minutes of inactivity.'}
             </p>
 
             <form onSubmit={handlePassphraseSubmit} className="space-y-3">
@@ -777,8 +861,7 @@ export const DefusionView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassphrase((prev) => !prev)}
-                    className="absolute right-2.5 text-stone-400 hover:text-charcoal cursor-pointer"
-                    tabIndex={-1}
+                    className="absolute right-2.5 text-stone-500 hover:text-charcoal cursor-pointer p-1 rounded"
                     aria-label={showPassphrase ? 'Hide passphrase' : 'Show passphrase'}
                   >
                     {showPassphrase ? <EyeOff size={14} /> : <Eye size={14} />}
