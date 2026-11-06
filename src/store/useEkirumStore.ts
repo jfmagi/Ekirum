@@ -15,6 +15,8 @@ import {
   LibraryItem,
   LibraryItemType,
   LibraryDifficulty,
+  DefusionEntry,
+  DefusionVaultConfig,
   DAILY_XP_CAP,
 } from '../types';
 import {
@@ -30,6 +32,11 @@ import { db, initializeDatabase } from '../lib/db';
 import { exportAll, importAndMerge } from '../lib/syncEngine';
 import { evaluateAchievements, applySkillXpGains } from '../lib/achievements';
 import { getLibraryXp } from '../lib/library';
+import {
+  initializeDefusionVault,
+  encryptDefusionPayload,
+  DEFUSION_XP,
+} from '../lib/defusionCrypto';
 import { formatLocalDate, isTaskOverdue } from '../lib/dateParser';
 export { formatLocalDate, isTaskOverdue };
 import {
@@ -189,6 +196,8 @@ export interface EkirumStore {
   skills: Skill[];
   habits: Habit[];
   libraryItems: LibraryItem[];
+  defusionEntries: DefusionEntry[];
+  defusionVault: DefusionVaultConfig | null;
   achievements: Achievement[];
   user: UserProfile;
 
@@ -310,6 +319,17 @@ export interface EkirumStore {
   completeLibraryItem: (id: string, details?: { review?: string; finishedDate?: string }) => Promise<void>;
   reopenLibraryItem: (id: string) => void;
 
+  // Actions - Defusion (encrypted thought vault)
+  defuseThought: (data: {
+    text: string;
+    prefix?: string;
+    projectId?: string;
+    burned?: boolean;
+  }) => Promise<DefusionEntry | null>;
+  burnDefusionEntry: (id: string) => Promise<void>;
+  deleteDefusionEntry: (id: string) => void;
+  saveDefusionVaultConfig: (vault: DefusionVaultConfig) => Promise<void>;
+
   // Actions - Storage, Backup & Serverless Sync
   initStorage: () => Promise<void>;
   syncWithDatabase: () => Promise<void>;
@@ -426,6 +446,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         skills: INITIAL_SKILLS,
         habits: INITIAL_HABITS,
         libraryItems: [],
+        defusionEntries: [],
+        defusionVault: null,
         achievements: INITIAL_ACHIEVEMENTS,
         user: { ...INITIAL_USER, achievements: [...INITIAL_USER.achievements] },
 
@@ -516,7 +538,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       },
 
       evaluateAndSyncAchievements: () => {
-        const { tasks, skills, habits, achievements, user, projects, libraryItems } = get();
+        const { tasks, skills, habits, achievements, user, projects, libraryItems, defusionEntries } = get();
         const { updatedAchievements, newlyUnlocked, earnedXpBonus, hasChanges, projectSkillXpGains } = evaluateAchievements(
           tasks,
           skills,
@@ -524,7 +546,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           achievements,
           user,
           projects,
-          libraryItems
+          libraryItems,
+          defusionEntries
         );
         const { updatedSkills } = applySkillXpGains(skills, projectSkillXpGains);
         const hasSkillGains = Boolean(projectSkillXpGains && Object.keys(projectSkillXpGains).length > 0);
@@ -628,18 +651,33 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
 
       syncWithDatabase: async () => {
         try {
-          const [allTasks, allProjects, allSkills, allHabits, allAchievements, allUsers, allLibrary] =
-            await Promise.all([
-              db.tasks.toArray(),
-              db.projects.toArray(),
-              db.skills.toArray(),
-              db.habits.toArray(),
-              db.achievements.toArray(),
-              db.userProfile.toArray(),
-              db.libraryItems.toArray(),
-            ]);
+          const [
+            allTasks,
+            allProjects,
+            allSkills,
+            allHabits,
+            allAchievements,
+            allUsers,
+            allLibrary,
+            allDefusionEntries,
+            allDefusionVaults,
+          ] = await Promise.all([
+            db.tasks.toArray(),
+            db.projects.toArray(),
+            db.skills.toArray(),
+            db.habits.toArray(),
+            db.achievements.toArray(),
+            db.userProfile.toArray(),
+            db.libraryItems.toArray(),
+            db.defusionEntries.toArray(),
+            db.defusionVault.toArray(),
+          ]);
 
           const activeLibrary = allLibrary.filter((i) => !i.isDeleted);
+          const activeDefusionEntries = allDefusionEntries
+            .filter((e) => !e.isDeleted)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          const activeDefusionVault = allDefusionVaults.find((v) => !v.isDeleted) || null;
           const activeTasks = allTasks.filter((t) => !t.isDeleted);
           const activeProjects = allProjects.filter((p) => !p.isDeleted);
           const activeSkills = allSkills.filter((s) => !s.isDeleted);
@@ -698,7 +736,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             currentAchs,
             currentUser,
             activeProjects,
-            activeLibrary
+            activeLibrary,
+            activeDefusionEntries
           );
 
           const { updatedSkills } = applySkillXpGains(activeSkills, projectSkillXpGains);
@@ -753,6 +792,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               skills: updatedSkills,
               habits: activeHabits,
               libraryItems: activeLibrary,
+              defusionEntries: activeDefusionEntries,
+              defusionVault: activeDefusionVault,
               achievements: updatedAchievements,
               user: currentUser,
             });
@@ -1149,7 +1190,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             get().achievements,
             updatedUser,
             get().projects,
-            get().libraryItems
+            get().libraryItems,
+            get().defusionEntries
           );
 
           const { updatedSkills: finalSkills, leveledUpSkills: projLeveledUpSkills } = applySkillXpGains(
@@ -1383,7 +1425,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           get().achievements,
           get().user,
           updatedProjects,
-          get().libraryItems
+          get().libraryItems,
+          get().defusionEntries
         );
 
         const { updatedSkills: finalSkills } = applySkillXpGains(updatedSkills, projectSkillXpGains);
@@ -1481,7 +1524,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             state.achievements,
             state.user,
             updatedProjects,
-            state.libraryItems
+            state.libraryItems,
+            state.defusionEntries
           );
           if (hasChanges) {
             db.achievements.bulkPut(updatedAchievements).catch(saveCatch('updating achievements'));
@@ -1524,7 +1568,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             state.achievements,
             state.user,
             updatedProjects,
-            state.libraryItems
+            state.libraryItems,
+            state.defusionEntries
           );
           if (hasChanges) {
             db.achievements.bulkPut(updatedAchievements).catch(saveCatch('updating achievements'));
@@ -1723,7 +1768,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             get().achievements,
             updatedUser,
             get().projects,
-            get().libraryItems
+            get().libraryItems,
+            get().defusionEntries
           );
 
           const { updatedSkills: finalSkills, leveledUpSkills: projLeveledUpSkills } = applySkillXpGains(
@@ -1964,7 +2010,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             get().achievements,
             updatedUser,
             get().projects,
-            updatedItems
+            updatedItems,
+            get().defusionEntries
           );
 
           const { updatedSkills: finalSkills, leveledUpSkills: projLeveledUpSkills } = applySkillXpGains(
@@ -2045,6 +2092,187 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         } finally {
           inFlightLibraryActions.delete(id);
         }
+      },
+
+      defuseThought: async (data) => {
+        const trimmedText = data.text.trim();
+        if (!trimmedText) return null;
+
+        const now = new Date().toISOString();
+        const todayStr = formatLocalDate();
+        const isBurned = Boolean(data.burned);
+
+        let currentVault = get().defusionVault;
+        let encryptedFields: { ciphertext?: string; iv?: string; wrappedKey?: string } = {};
+
+        if (!isBurned) {
+          if (!currentVault) {
+            currentVault = await initializeDefusionVault();
+            set({ defusionVault: currentVault });
+            await db.defusionVault.put(currentVault).catch(saveCatch('initializing defusion vault'));
+          }
+          encryptedFields = await encryptDefusionPayload(currentVault.publicKeyJwk, {
+            text: trimmedText,
+            prefix: data.prefix?.trim() || undefined,
+          });
+        }
+
+        const { projects, skills, user, defusionEntries } = get();
+        const currentDailyEarned = user.dailyXpDate === todayStr ? (user.dailyXpEarned || 0) : 0;
+        const remainingCap = Math.max(0, DAILY_XP_CAP - currentDailyEarned);
+        const earnedXp = Math.min(DEFUSION_XP, remainingCap);
+        const newDailyEarned = currentDailyEarned + earnedXp;
+
+        const newEntry: DefusionEntry = {
+          id: generateUuid('def'),
+          projectId: data.projectId || undefined,
+          burned: isBurned,
+          ...encryptedFields,
+          xpAwarded: true,
+          xpEarned: earnedXp,
+          createdAt: now,
+          updatedAt: now,
+          isDeleted: false,
+        };
+
+        const updatedEntries = [newEntry, ...defusionEntries];
+        let updatedSkills = [...skills];
+
+        if (data.projectId) {
+          const project = projects.find((p) => p.id === data.projectId);
+          const skillIndex = project ? skills.findIndex((s) => s.id === project.skillId) : -1;
+          if (skillIndex !== -1) {
+            const skill = skills[skillIndex];
+            const newXp = skill.xp + earnedXp;
+            const newLevel = calculateSkillLevel(newXp);
+            const lastDate = skill.lastCompletedDate;
+            let newStreak = skill.streak;
+            if (lastDate !== todayStr) {
+              const yesterdayDate = new Date();
+              yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+              const yesterday = formatLocalDate(yesterdayDate);
+              newStreak = lastDate === yesterday ? skill.streak + 1 : 1;
+            }
+            updatedSkills[skillIndex] = {
+              ...skill,
+              xp: newXp,
+              level: newLevel,
+              xpToNextLevel: getXpRequiredForNextLevel(newLevel),
+              streak: newStreak,
+              lastCompletedDate: todayStr,
+              totalCompleted: skill.totalCompleted + 1,
+              updatedAt: now,
+            };
+          }
+        }
+
+        const newUserXp = user.totalXp + earnedXp;
+        const { level: derivedLevel } = computeUserLevelAndRank(newUserXp);
+        const newEkirumLevel = Math.max(user.ekirumLevel || 1, derivedLevel);
+        const newEkirumRank = getEkirumRankTitle(newEkirumLevel);
+
+        let updatedUser: UserProfile = {
+          ...user,
+          totalXp: newUserXp,
+          ekirumLevel: newEkirumLevel,
+          ekirumRank: newEkirumRank,
+          dailyXpDate: todayStr,
+          dailyXpEarned: newDailyEarned,
+          updatedAt: now,
+        };
+
+        const { updatedAchievements, newlyUnlocked, earnedXpBonus, hasChanges, projectSkillXpGains } = evaluateAchievements(
+          get().tasks,
+          updatedSkills,
+          get().habits,
+          get().achievements,
+          updatedUser,
+          get().projects,
+          get().libraryItems,
+          updatedEntries
+        );
+
+        const { updatedSkills: finalSkills } = applySkillXpGains(updatedSkills, projectSkillXpGains);
+
+        if (newlyUnlocked.length > 0 || earnedXpBonus > 0) {
+          const currentAchIds = new Set(updatedUser.achievements || []);
+          newlyUnlocked.forEach((a) => currentAchIds.add(a.id));
+          const finalUserXp = updatedUser.totalXp + earnedXpBonus;
+          const { level: derivedFinalLevel } = computeUserLevelAndRank(finalUserXp);
+          const finalLevel = Math.max(updatedUser.ekirumLevel || 1, derivedFinalLevel);
+          const finalRank = getEkirumRankTitle(finalLevel);
+          updatedUser = {
+            ...updatedUser,
+            totalXp: finalUserXp,
+            ekirumLevel: finalLevel,
+            ekirumRank: finalRank,
+            achievements: Array.from(currentAchIds),
+          };
+        }
+
+        sound.playClick();
+
+        set({
+          defusionEntries: updatedEntries,
+          skills: finalSkills,
+          achievements: updatedAchievements,
+          user: updatedUser,
+        });
+
+        await db.transaction(
+          'rw',
+          [db.defusionEntries, db.skills, db.achievements, db.userProfile],
+          async () => {
+            await db.defusionEntries.put(newEntry);
+            if (finalSkills.length > 0) {
+              await db.skills.bulkPut(finalSkills);
+            }
+            if (hasChanges) {
+              await db.achievements.bulkPut(updatedAchievements);
+            }
+            await db.userProfile.put(updatedUser);
+          }
+        ).catch(saveCatch('defusing thought'));
+
+        return newEntry;
+      },
+
+      burnDefusionEntry: async (id) => {
+        const existing = get().defusionEntries.find((e) => e.id === id);
+        if (!existing || existing.burned) return;
+
+        const now = new Date().toISOString();
+        const burnedEntry: DefusionEntry = {
+          id: existing.id,
+          projectId: existing.projectId,
+          burned: true,
+          xpAwarded: existing.xpAwarded,
+          xpEarned: existing.xpEarned,
+          createdAt: existing.createdAt,
+          updatedAt: now,
+          isDeleted: false,
+        };
+
+        set((state) => ({
+          defusionEntries: state.defusionEntries.map((e) => (e.id === id ? burnedEntry : e)),
+        }));
+
+        await db.defusionEntries.put(burnedEntry).catch(saveCatch('burning defused thought'));
+        sound.playClick();
+      },
+
+      deleteDefusionEntry: (id) => {
+        const now = new Date().toISOString();
+        set((state) => ({
+          defusionEntries: state.defusionEntries.filter((e) => e.id !== id),
+        }));
+        db.defusionEntries.update(id, { isDeleted: true, deletedAt: now, updatedAt: now }).catch(saveCatch('deleting defused thought'));
+        sound.playClick();
+      },
+
+      saveDefusionVaultConfig: async (vault) => {
+        set({ defusionVault: vault });
+        await db.defusionVault.put(vault).catch(saveCatch('saving defusion vault configuration'));
       },
 
       exportBackupJson: async () => {
@@ -2165,7 +2393,19 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         try {
           await db.transaction(
             'rw',
-            [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.achievements, db.userProfile, db.libraryItems, db.settings],
+            [
+              db.tasks,
+              db.projects,
+              db.skills,
+              db.habits,
+              db.habitEvents,
+              db.achievements,
+              db.userProfile,
+              db.libraryItems,
+              db.defusionEntries,
+              db.defusionVault,
+              db.settings,
+            ],
             async () => {
               await db.tasks.clear();
               await db.projects.clear();
@@ -2175,6 +2415,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               await db.achievements.clear();
               await db.userProfile.clear();
               await db.libraryItems.clear();
+              await db.defusionEntries.clear();
+              await db.defusionVault.clear();
               await db.settings.delete('deviceSyncMtimes');
               await db.settings.delete('lastSyncAt');
 
@@ -2207,6 +2449,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             skills: [],
             habits: [],
             libraryItems: [],
+            defusionEntries: [],
+            defusionVault: null,
             achievements: INITIAL_ACHIEVEMENTS,
             user: { ...INITIAL_USER, achievements: [...INITIAL_USER.achievements] },
             currentView: 'today',
@@ -2228,7 +2472,19 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         const clonedUser = { ...INITIAL_USER, achievements: [...INITIAL_USER.achievements] };
         await db.transaction(
           'rw',
-          [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.achievements, db.userProfile, db.libraryItems, db.settings],
+          [
+            db.tasks,
+            db.projects,
+            db.skills,
+            db.habits,
+            db.habitEvents,
+            db.achievements,
+            db.userProfile,
+            db.libraryItems,
+            db.defusionEntries,
+            db.defusionVault,
+            db.settings,
+          ],
           async () => {
             await db.tasks.clear();
             await db.projects.clear();
@@ -2238,6 +2494,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             await db.achievements.clear();
             await db.userProfile.clear();
             await db.libraryItems.clear();
+            await db.defusionEntries.clear();
+            await db.defusionVault.clear();
             await db.settings.delete('deviceSyncMtimes');
             await db.settings.delete('lastSyncAt');
 
@@ -2256,6 +2514,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           skills: INITIAL_SKILLS,
           habits: INITIAL_HABITS,
           libraryItems: [],
+          defusionEntries: [],
+          defusionVault: null,
           achievements: INITIAL_ACHIEVEMENTS,
           user: clonedUser,
           currentView: 'today',
@@ -2276,7 +2536,9 @@ useEkirumStore.subscribe((state, prevState) => {
     state.habits !== prevState.habits ||
     state.projects !== prevState.projects ||
     state.user !== prevState.user ||
-    state.libraryItems !== prevState.libraryItems
+    state.libraryItems !== prevState.libraryItems ||
+    state.defusionEntries !== prevState.defusionEntries ||
+    state.defusionVault !== prevState.defusionVault
   ) {
     scheduleBackgroundSync();
   }

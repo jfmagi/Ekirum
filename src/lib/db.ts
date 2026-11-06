@@ -8,6 +8,8 @@ import {
   Achievement,
   UserProfile,
   LibraryItem,
+  DefusionEntry,
+  DefusionVaultConfig,
 } from '../types';
 import {
   INITIAL_PROJECTS,
@@ -41,6 +43,8 @@ export class EkirumDatabase extends Dexie {
   achievements!: EntityTable<Achievement, 'id'>;
   userProfile!: EntityTable<UserProfile, 'id'>;
   libraryItems!: EntityTable<LibraryItem, 'id'>;
+  defusionEntries!: EntityTable<DefusionEntry, 'id'>;
+  defusionVault!: EntityTable<DefusionVaultConfig, 'id'>;
   settings!: EntityTable<SettingRecord, 'key'>;
 
   constructor() {
@@ -61,6 +65,12 @@ export class EkirumDatabase extends Dexie {
     // Schema version 2: adds the Library (reading list / watchlist)
     this.version(2).stores({
       libraryItems: 'id, type, status, updatedAt, isDeleted',
+    });
+
+    // Schema version 3: adds encrypted Defusion entries and vault key configuration
+    this.version(3).stores({
+      defusionEntries: 'id, projectId, burned, createdAt, updatedAt, isDeleted',
+      defusionVault: 'id, updatedAt',
     });
   }
 }

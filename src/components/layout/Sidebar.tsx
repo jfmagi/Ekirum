@@ -12,6 +12,7 @@ import {
   HelpCircle,
   HardDrive,
   BookOpen,
+  Wind,
 } from 'lucide-react';
 import { ViewType } from '../../types';
 import { formatLocalDate, isTaskOngoing, getTaskEndDateTime } from '../../lib/dateParser';
@@ -208,6 +209,21 @@ export const Sidebar: React.FC = () => {
                   {libraryQueueCount}
                 </span>
               )}
+            </button>
+
+            {/* Defusion Tab Link */}
+            <button
+              onClick={() => handleSelectView('defusion')}
+              className={`w-full flex items-center justify-between px-2.5 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-[32px] rounded-mac text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer ${
+                currentView === 'defusion'
+                  ? 'bg-stone-200/80 text-charcoal font-semibold shadow-2xs'
+                  : 'text-stone-700 hover:bg-stone-200/50 hover:text-charcoal'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Wind size={15} className="text-stone-500" />
+                <span>Defusion</span>
+              </div>
             </button>
 
             {/* Character Tab Link */}

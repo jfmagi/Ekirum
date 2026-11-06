@@ -7,6 +7,8 @@ import {
   Achievement,
   UserProfile,
   LibraryItem,
+  DefusionEntry,
+  DefusionVaultConfig,
 } from '../types';
 import { formatLocalDate } from './dateParser';
 import { MAX_LENGTHS } from './validation';
@@ -263,3 +265,58 @@ export function sanitizeLibraryItem(raw: any): LibraryItem | null {
     deletedAt: typeof raw.deletedAt === 'string' ? raw.deletedAt : undefined,
   });
 }
+
+export function sanitizeDefusionEntry(raw: any): DefusionEntry | null {
+  if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !raw.id.trim()) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const burned = Boolean(raw.burned);
+  return cleanUndefined<DefusionEntry>({
+    id: String(raw.id).trim(),
+    projectId: str(raw.projectId),
+    burned,
+    ciphertext: burned ? undefined : str(raw.ciphertext),
+    iv: burned ? undefined : str(raw.iv),
+    wrappedKey: burned ? undefined : str(raw.wrappedKey),
+    xpAwarded: Boolean(raw.xpAwarded),
+    xpEarned: typeof raw.xpEarned === 'number' && !isNaN(raw.xpEarned) && raw.xpEarned >= 0 ? raw.xpEarned : undefined,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now,
+    isDeleted: Boolean(raw.isDeleted),
+    deletedAt: typeof raw.deletedAt === 'string' ? raw.deletedAt : undefined,
+  });
+}
+
+export function sanitizeDefusionVaultConfig(raw: any): DefusionVaultConfig | null {
+  if (
+    !raw ||
+    typeof raw !== 'object' ||
+    typeof raw.id !== 'string' ||
+    !raw.id.trim() ||
+    typeof raw.publicKeyJwk !== 'string' ||
+    !raw.publicKeyJwk.trim()
+  ) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const passphraseConfigured = Boolean(raw.passphraseConfigured);
+  return cleanUndefined<DefusionVaultConfig>({
+    id: String(raw.id).trim(),
+    publicKeyJwk: raw.publicKeyJwk.trim(),
+    wrappedPrivateKey: str(raw.wrappedPrivateKey),
+    salt: str(raw.salt),
+    iv: str(raw.iv),
+    pendingSealKey: passphraseConfigured ? undefined : str(raw.pendingSealKey),
+    pendingWrappedPrivateKey: passphraseConfigured ? undefined : str(raw.pendingWrappedPrivateKey),
+    pendingIv: passphraseConfigured ? undefined : str(raw.pendingIv),
+    passphraseConfigured,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now,
+    isDeleted: Boolean(raw.isDeleted),
+    deletedAt: typeof raw.deletedAt === 'string' ? raw.deletedAt : undefined,
+  });
+}
+

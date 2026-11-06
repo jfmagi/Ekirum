@@ -9,6 +9,8 @@ import {
   Achievement,
   UserProfile,
   LibraryItem,
+  DefusionEntry,
+  DefusionVaultConfig,
 } from '../types';
 import { calculateHabitStreak } from '../store/useEkirumStore';
 import { computeUserLevelAndRank, calculateSkillLevel, getEkirumRankTitle } from './characterMath';
@@ -21,6 +23,8 @@ import {
   sanitizeAchievement,
   sanitizeUserProfile,
   sanitizeLibraryItem,
+  sanitizeDefusionEntry,
+  sanitizeDefusionVaultConfig,
 } from './schemaSanitizers';
 import { SEED_EPOCH_ISO, INITIAL_USER } from './seedData';
 
@@ -47,18 +51,22 @@ export async function compactTombstones(cutoffDays = 60): Promise<number> {
   const cutoffTime = new Date(Date.now() - cutoffDays * 24 * 3600 * 1000).toISOString();
   let purgedCount = 0;
 
-  await db.transaction('rw', [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.libraryItems], async () => {
-    const tables = [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.libraryItems];
-    for (const table of tables) {
-      const oldDeletedKeys = await table
-        .filter((r: any) => Boolean(r.isDeleted) && typeof r.updatedAt === 'string' && r.updatedAt < cutoffTime)
-        .primaryKeys();
-      if (oldDeletedKeys.length > 0) {
-        await table.bulkDelete(oldDeletedKeys);
-        purgedCount += oldDeletedKeys.length;
+  await db.transaction(
+    'rw',
+    [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.libraryItems, db.defusionEntries],
+    async () => {
+      const tables = [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.libraryItems, db.defusionEntries];
+      for (const table of tables) {
+        const oldDeletedKeys = await table
+          .filter((r: any) => Boolean(r.isDeleted) && typeof r.updatedAt === 'string' && r.updatedAt < cutoffTime)
+          .primaryKeys();
+        if (oldDeletedKeys.length > 0) {
+          await table.bulkDelete(oldDeletedKeys);
+          purgedCount += oldDeletedKeys.length;
+        }
       }
     }
-  });
+  );
 
   return purgedCount;
 }
@@ -81,6 +89,8 @@ export async function exportAll(
     achievements,
     userProfile,
     libraryItems,
+    defusionEntries,
+    defusionVault,
   ] = await Promise.all([
     db.tasks.toArray(),
     db.projects.toArray(),
@@ -90,6 +100,8 @@ export async function exportAll(
     db.achievements.toArray(),
     db.userProfile.toArray(),
     db.libraryItems.toArray(),
+    db.defusionEntries.toArray(),
+    db.defusionVault.toArray(),
   ]);
 
   return {
@@ -107,6 +119,8 @@ export async function exportAll(
       achievements,
       userProfile,
       libraryItems,
+      defusionEntries,
+      defusionVault,
     },
   };
 }
@@ -281,6 +295,84 @@ export function mergeLibraryItems(
     xpEarned: xpAwarded ? xpEarned : base.xpEarned,
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
+
+  if (!isSubstantiveRecordEqual(result, existing)) {
+    result.updatedAt = (isIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+      ? incoming.updatedAt
+      : new Date().toISOString();
+  }
+
+  return result;
+}
+
+/**
+ * Custom merger for DefusionEntry ensuring:
+ * 1. Burned status is monotonic: once an entry is burned on any device, its ciphertext is permanently removed.
+ * 2. XP grant state is preserved across devices.
+ */
+export function mergeDefusionEntries(
+  existing: DefusionEntry,
+  incoming: DefusionEntry,
+  isIncomingNewer: boolean
+): DefusionEntry {
+  const burned = Boolean(existing.burned || incoming.burned);
+  const xpAwarded = Boolean(existing.xpAwarded || incoming.xpAwarded);
+  const xpEarned = Math.max(existing.xpEarned || 0, incoming.xpEarned || 0);
+  const base = isIncomingNewer ? incoming : existing;
+
+  const result: DefusionEntry = {
+    ...base,
+    burned,
+    xpAwarded,
+    ...(xpAwarded ? { xpEarned } : {}),
+    updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
+  };
+
+  if (burned) {
+    delete result.ciphertext;
+    delete result.iv;
+    delete result.wrappedKey;
+  }
+
+  if (!isSubstantiveRecordEqual(result, existing)) {
+    result.updatedAt = (isIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+      ? incoming.updatedAt
+      : new Date().toISOString();
+  }
+
+  return result;
+}
+
+/**
+ * Custom merger for DefusionVaultConfig ensuring:
+ * Once a passphrase is configured on any device, the passphrase-wrapped vault configuration
+ * always takes precedence over an unconfigured pending vault.
+ */
+export function mergeDefusionVault(
+  existing: DefusionVaultConfig,
+  incoming: DefusionVaultConfig,
+  isIncomingNewer: boolean
+): DefusionVaultConfig {
+  let chosen: DefusionVaultConfig;
+  if (incoming.passphraseConfigured && !existing.passphraseConfigured) {
+    chosen = incoming;
+  } else if (existing.passphraseConfigured && !incoming.passphraseConfigured) {
+    chosen = existing;
+  } else {
+    chosen = isIncomingNewer ? incoming : existing;
+  }
+
+  const result: DefusionVaultConfig = {
+    ...chosen,
+    id: existing.id || incoming.id || 'vault-1',
+    updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
+  };
+
+  if (result.passphraseConfigured) {
+    delete result.pendingSealKey;
+    delete result.pendingWrappedPrivateKey;
+    delete result.pendingIv;
+  }
 
   if (!isSubstantiveRecordEqual(result, existing)) {
     result.updatedAt = (isIncomingNewer && isSubstantiveRecordEqual(result, incoming))
@@ -870,6 +962,8 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
         db.achievements,
         db.userProfile,
         db.libraryItems,
+        db.defusionEntries,
+        db.defusionVault,
       ],
       async () => {
         // Pre-scan existing records to identify newly arriving completions and calculate XP/skill deltas (RC1)
@@ -981,6 +1075,30 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
               const skillId = raw.projectId ? projectSkillMap.get(raw.projectId) : undefined;
               if (skillId) {
                 incomingSkillXpDelta[skillId] = (incomingSkillXpDelta[skillId] || 0) + libXp;
+                incomingSkillCompletionsDelta[skillId] = (incomingSkillCompletionsDelta[skillId] || 0) + 1;
+              }
+            }
+          }
+        }
+
+        // 3b. Defusion entries delta
+        if (Array.isArray(tables.defusionEntries) && tables.defusionEntries.length > 0) {
+          const entryIds = tables.defusionEntries.filter((e: any) => e && e.id).map((e: any) => e.id);
+          const existingEntries = await db.defusionEntries.bulkGet(entryIds);
+          const existingEntriesMap = new Map<string, DefusionEntry>();
+          for (const e of existingEntries) {
+            if (e && e.id) existingEntriesMap.set(e.id, e);
+          }
+
+          for (const raw of tables.defusionEntries) {
+            if (!raw || !raw.id || raw.isDeleted) continue;
+            const existingEntry = existingEntriesMap.get(raw.id);
+            if (!existingEntry || !existingEntry.xpAwarded) {
+              const defXp = typeof raw.xpEarned === 'number' && !isNaN(raw.xpEarned) ? raw.xpEarned : 10;
+              incomingNewXpDelta += defXp;
+              const skillId = raw.projectId ? projectSkillMap.get(raw.projectId) : undefined;
+              if (skillId) {
+                incomingSkillXpDelta[skillId] = (incomingSkillXpDelta[skillId] || 0) + defXp;
                 incomingSkillCompletionsDelta[skillId] = (incomingSkillCompletionsDelta[skillId] || 0) + 1;
               }
             }
@@ -1153,6 +1271,26 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
             sanitizeLibraryItem,
             mergeOptions,
             mergeLibraryItems
+          );
+        }
+
+        // 7c. Merge Defusion entries and vault configuration
+        if (tables.defusionEntries) {
+          stats.defusionEntries = await mergeTableRecords<DefusionEntry>(
+            db.defusionEntries,
+            tables.defusionEntries,
+            sanitizeDefusionEntry,
+            mergeOptions,
+            mergeDefusionEntries
+          );
+        }
+        if (tables.defusionVault) {
+          stats.defusionVault = await mergeTableRecords<DefusionVaultConfig>(
+            db.defusionVault,
+            tables.defusionVault,
+            sanitizeDefusionVaultConfig,
+            mergeOptions,
+            mergeDefusionVault
           );
         }
 

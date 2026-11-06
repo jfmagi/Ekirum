@@ -1,4 +1,4 @@
-import { Task, Skill, Habit, Achievement, UserProfile, Project, LibraryItem } from '../types';
+import { Task, Skill, Habit, Achievement, UserProfile, Project, LibraryItem, DefusionEntry } from '../types';
 import { INITIAL_ACHIEVEMENTS } from './seedData';
 import { formatLocalDate, isTaskOngoing, getTaskEndDateTime } from './dateParser';
 import { calculateSkillLevel } from './characterMath';
@@ -288,7 +288,8 @@ export function evaluateAchievements(
   currentAchievements: Achievement[] = [],
   user?: UserProfile,
   projects: Project[] = [],
-  libraryItems: LibraryItem[] = []
+  libraryItems: LibraryItem[] = [],
+  defusionEntries: DefusionEntry[] = []
 ): AchievementEvaluationResult {
   const nowIso = new Date().toISOString();
   const todayStr = formatLocalDate();
@@ -310,6 +311,11 @@ export function evaluateAchievements(
   for (const item of libraryItems) {
     if (!item.isDeleted && item.status === 'done' && item.projectId) {
       projectCompletionsMap.set(item.projectId, (projectCompletionsMap.get(item.projectId) || 0) + 1);
+    }
+  }
+  for (const entry of defusionEntries) {
+    if (!entry.isDeleted && entry.projectId) {
+      projectCompletionsMap.set(entry.projectId, (projectCompletionsMap.get(entry.projectId) || 0) + 1);
     }
   }
 

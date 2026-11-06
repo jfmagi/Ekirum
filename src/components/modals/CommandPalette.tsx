@@ -16,6 +16,7 @@ import {
   HelpCircle,
   BookOpen,
   FileDown,
+  Wind,
 } from 'lucide-react';
 
 type PaletteItem = {
@@ -114,6 +115,17 @@ const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({ onClose }) 
         icon: <BookOpen size={14} className="text-stone-500" />,
         action: () => {
           setCurrentView('library');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-defusion',
+        type: 'nav',
+        title: 'Go to Defusion',
+        subtitle: 'Dump thoughts into an encrypted vault or burn them to ash',
+        icon: <Wind size={14} className="text-stone-500" />,
+        action: () => {
+          setCurrentView('defusion');
           onClose();
         },
       },

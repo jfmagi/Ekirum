@@ -126,7 +126,29 @@ export interface LibraryItem extends BaseEntity {
   xpEarned?: number;
 }
 
-export type ViewType = 'today' | 'calendar' | 'upcoming' | 'completed' | 'habits' | 'library' | 'character' | 'project' | 'inbox';
+export interface DefusionEntry extends BaseEntity {
+  projectId?: string; // Optional link to Project & Skill (silently receives 10 XP)
+  burned: boolean; // If true, plaintext was permanently vaporized (no ciphertext stored)
+  ciphertext?: string; // Base64 AES-256-GCM encrypted JSON payload { text: string; prefix?: string }
+  iv?: string; // Base64 12-byte IV for AES-256-GCM
+  wrappedKey?: string; // Base64 RSA-OAEP 2048-bit wrapped AES-256 key
+  xpAwarded?: boolean; // Internal idempotency flag
+  xpEarned?: number; // Internal XP value for sync delta
+}
+
+export interface DefusionVaultConfig extends BaseEntity {
+  id: string; // 'vault-1'
+  publicKeyJwk: string; // JSON stringified JsonWebKey for RSA-OAEP 2048 public key
+  wrappedPrivateKey?: string; // Base64 AES-256-GCM encrypted PKCS#8 private key (when passphrase is set)
+  salt?: string; // Base64 16-byte PBKDF2 salt
+  iv?: string; // Base64 12-byte AES-GCM IV for wrappedPrivateKey
+  pendingSealKey?: string; // Base64 AES-GCM key used before passphrase is created on first unlock
+  pendingWrappedPrivateKey?: string; // Base64 AES-GCM encrypted PKCS#8 private key before passphrase is created
+  pendingIv?: string; // Base64 12-byte IV for pendingWrappedPrivateKey
+  passphraseConfigured: boolean;
+}
+
+export type ViewType = 'today' | 'calendar' | 'upcoming' | 'completed' | 'habits' | 'library' | 'defusion' | 'character' | 'project' | 'inbox';
 export type DisplayMode = 'list' | 'timeline' | 'calendar';
 
 export interface BackupTables {
@@ -138,6 +160,8 @@ export interface BackupTables {
   achievements: Achievement[];
   userProfile: UserProfile[];
   libraryItems?: LibraryItem[];
+  defusionEntries?: DefusionEntry[];
+  defusionVault?: DefusionVaultConfig[];
 }
 
 export interface BackupFile {
