@@ -346,10 +346,18 @@ export const DefusionView: React.FC = () => {
     <div className="flex-1 h-full overflow-y-auto px-4 sm:px-8 py-6 pb-28 md:pb-12 bg-[#FBFBF9]">
       <div className="max-w-3xl mx-auto space-y-7">
         {/* Header */}
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200/80 pb-4">
-          <p className="text-xs text-stone-600 max-w-xl leading-relaxed">
-            Step back from tangled thoughts by writing them down and releasing them. Thoughts are sealed with one-way encryption by default, or burned to ash on release.
-          </p>
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-stone-200/80">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-crimson" />
+              <h2 className="font-serif text-2xl font-medium text-charcoal">
+                Defusion chamber
+              </h2>
+            </div>
+            <p className="text-xs text-stone-500 font-sans mt-0.5 max-w-xl leading-relaxed">
+              Step back from tangled thoughts by writing them down and releasing them. Thoughts are sealed with one-way encryption by default, or burned to ash on release.
+            </p>
+          </div>
 
           {/* Vault Status Pill & Unlock / Lock Controls */}
           <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
