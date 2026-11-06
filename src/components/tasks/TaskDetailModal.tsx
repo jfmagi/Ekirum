@@ -170,10 +170,10 @@ export const TaskDetailModal: React.FC = () => {
                 onChange={(e) => updateTask(task.id, { priority: e.target.value as Priority })}
                 className="w-full text-xs bg-white border border-stone-200 rounded-mac px-2 py-1.5 text-stone-700 focus:outline-none focus:border-stone-400 cursor-pointer"
               >
-                <option value="p1">P1 — High (Crimson)</option>
-                <option value="p2">P2 — Medium (Amber)</option>
-                <option value="p3">P3 — Low (Slate)</option>
-                <option value="p4">P4 — None</option>
+                <option value="p1">P1</option>
+                <option value="p2">P2</option>
+                <option value="p3">P3</option>
+                <option value="p4">P4</option>
               </select>
             </div>
 

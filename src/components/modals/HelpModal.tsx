@@ -145,79 +145,67 @@ export const HelpModal: React.FC = () => {
           {activeTab === 'priorities' && (
             <div className="space-y-4">
               <div className="bg-stone-50/70 border border-stone-200/80 rounded-card p-3.5 text-xs text-stone-700 leading-relaxed font-sans">
-                Priorities reflect the gradation of how difficult or urgent a task is. Type <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p1</code>, <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p2</code>, <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p3</code>, or <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p4</code> in the Quick Add bar.
+                Priorities reflect the gradation of task difficulty. Type <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p1</code>, <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p2</code>, <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p3</code>, or <code className="px-1 py-0.5 bg-stone-200 rounded font-mono text-[11px] text-charcoal">p4</code> in the Quick Add bar.
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 {/* P1 */}
                 <div className="p-4 bg-white border-2 border-crimson/30 rounded-card shadow-xs space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-crimson text-white text-[11px] font-mono font-medium uppercase tracking-wider">
-                      <Flag size={11} /> P1 — Urgent
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-crimson text-white text-[11px] font-mono font-medium uppercase tracking-wider">
+                      <Flag size={11} /> P1
                     </span>
                     <span className="text-[11px] font-mono font-semibold text-crimson">
-                      +15 XP (10 + 5 bonus)
+                      20 XP (10 + 10 bonus)
                     </span>
                   </div>
-                  <h4 className="font-serif text-sm font-semibold text-charcoal">
-                    Highest Urgency & Difficulty
-                  </h4>
                   <p className="text-xs text-stone-600 font-sans leading-relaxed">
-                    Most demanding, complex, or time-critical tasks.
+                    Most difficult or demanding tasks.
                   </p>
                 </div>
 
                 {/* P2 */}
                 <div className="p-4 bg-white border border-amber-300 rounded-card shadow-xs space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-600 text-white text-[11px] font-mono font-medium uppercase tracking-wider">
-                      <Flag size={11} /> P2 — Medium
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-600 text-white text-[11px] font-mono font-medium uppercase tracking-wider">
+                      <Flag size={11} /> P2
                     </span>
                     <span className="text-[11px] font-mono font-semibold text-amber-700">
-                      +13 XP (10 + 3 bonus)
+                      15 XP (10 + 5 bonus)
                     </span>
                   </div>
-                  <h4 className="font-serif text-sm font-semibold text-charcoal">
-                    Moderate Urgency & Difficulty
-                  </h4>
                   <p className="text-xs text-stone-600 font-sans leading-relaxed">
-                    Important tasks carrying moderate effort or upcoming deadlines.
+                    Moderately difficult tasks.
                   </p>
                 </div>
 
                 {/* P3 */}
                 <div className="p-4 bg-white border border-stone-200 rounded-card shadow-xs space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-stone-500 text-white text-[11px] font-mono font-medium uppercase tracking-wider">
-                      <Flag size={11} /> P3 — Low
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-stone-500 text-white text-[11px] font-mono font-medium uppercase tracking-wider">
+                      <Flag size={11} /> P3
                     </span>
                     <span className="text-[11px] font-mono font-medium text-stone-600">
-                      10 XP (Standard)
+                      11 XP (10 + 1 bonus)
                     </span>
                   </div>
-                  <h4 className="font-serif text-sm font-semibold text-charcoal">
-                    Low Urgency & Difficulty
-                  </h4>
                   <p className="text-xs text-stone-600 font-sans leading-relaxed">
-                    Everyday, routine tasks with lower effort and flexible timing.
+                    Slightly above normal tasks.
                   </p>
                 </div>
 
                 {/* P4 */}
                 <div className="p-4 bg-white border border-stone-200 rounded-card shadow-xs space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-stone-200 text-stone-700 text-[11px] font-mono font-medium uppercase tracking-wider">
-                      <Flag size={11} /> P4 — None
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-stone-200 text-stone-700 text-[11px] font-mono font-medium uppercase tracking-wider">
+                      <Flag size={11} /> P4
                     </span>
                     <span className="text-[11px] font-mono font-medium text-stone-600">
                       10 XP (Standard)
                     </span>
                   </div>
-                  <h4 className="font-serif text-sm font-semibold text-charcoal">
-                    Minimal / Baseline
-                  </h4>
                   <p className="text-xs text-stone-600 font-sans leading-relaxed">
-                    Casual or unassigned tasks with no urgency or difficulty.
+                    Normal or default tasks.
                   </p>
                 </div>
               </div>
@@ -302,10 +290,10 @@ export const HelpModal: React.FC = () => {
                 <div className="p-3.5 bg-white border border-stone-200/80 rounded-card space-y-1.5">
                   <div className="font-semibold text-charcoal flex items-center justify-between">
                     <span>Task Completion XP</span>
-                    <span className="font-mono text-gold font-bold">+10 to +20 XP</span>
+                    <span className="font-mono text-gold font-bold">+10 to +25 XP</span>
                   </div>
                   <p className="text-stone-600 text-[11px] leading-relaxed">
-                    10 base XP + priority bonus (+5 for P1, +3 for P2) + timeliness bonus (+5 if on or before due date).
+                    10 base XP + priority bonus (+10 for P1, +5 for P2, +1 for P3) + timeliness bonus (+5 if on or before due date).
                   </p>
                 </div>
 

@@ -1011,8 +1011,9 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
                 taskXp = raw.xpAwarded;
               } else {
                 let potential = 10;
-                if (raw.priority === 'p1') potential += 5;
-                else if (raw.priority === 'p2') potential += 3;
+                if (raw.priority === 'p1') potential += 10;
+                else if (raw.priority === 'p2') potential += 5;
+                else if (raw.priority === 'p3') potential += 1;
                 if (raw.dueDate) potential += 5;
                 taskXp = potential;
               }

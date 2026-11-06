@@ -61,10 +61,10 @@ export const FilterToolbar: React.FC = () => {
   };
 
   const priorityDescriptions: Record<Priority, string> = {
-    p1: 'Filter by P1 (Urgent / High Focus)',
-    p2: 'Filter by P2 (High Focus)',
-    p3: 'Filter by P3 (Low Focus)',
-    p4: 'Filter by P4 (None / Unassigned)',
+    p1: 'Filter by P1',
+    p2: 'Filter by P2',
+    p3: 'Filter by P3',
+    p4: 'Filter by P4',
   };
 
   const renderViewModeSegment = () => {

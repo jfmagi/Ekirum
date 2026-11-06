@@ -32,8 +32,9 @@ async function testDailyXpCap() {
     const remainingCap = Math.max(0, DAILY_XP_CAP - currentDailyEarned);
 
     let potentialXp = 10;
-    if (taskPriority === 'p1') potentialXp += 5;
-    else if (taskPriority === 'p2') potentialXp += 3;
+    if (taskPriority === 'p1') potentialXp += 10;
+    else if (taskPriority === 'p2') potentialXp += 5;
+    else if (taskPriority === 'p3') potentialXp += 1;
 
     const earnedXp = Math.min(potentialXp, remainingCap);
     const newDailyEarned = currentDailyEarned + earnedXp;
@@ -51,9 +52,9 @@ async function testDailyXpCap() {
 
   // Complete tasks until reaching 500 XP (50 tasks of 10 XP each)
   for (let i = 1; i <= 50; i++) {
-    const res = simulateTaskCompletion('p3');
+    const res = simulateTaskCompletion('p4');
     if (i % 10 === 0 || i === 50) {
-      console.log(`Task ${i} (P3): Earned ${res.earnedXp} XP (Daily total: ${res.newDailyEarned}/${DAILY_XP_CAP})`);
+      console.log(`Task ${i} (P4): Earned ${res.earnedXp} XP (Daily total: ${res.newDailyEarned}/${DAILY_XP_CAP})`);
     }
   }
 

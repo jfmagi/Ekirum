@@ -245,7 +245,7 @@ async function runTest() {
     task2Completed: useEkirumStore.getState().tasks.find((t) => t.id === 'task-desktop-2')?.completed,
   });
 
-  assert.strictEqual(useEkirumStore.getState().user.totalXp, 163, 'Desktop XP should converge to 163');
+  assert.strictEqual(useEkirumStore.getState().user.totalXp, 165, 'Desktop XP should converge to 165');
   assert.strictEqual(useEkirumStore.getState().tasks.find((t) => t.id === 'task-desktop-2')?.completed, true, 'Task 2 should be completed on Desktop');
   console.log('\n🎉 TWO-WAY CONVERGENCE VERIFIED!');
 
@@ -273,7 +273,7 @@ async function runTest() {
   await db.userProfile.put({
     ...useEkirumStore.getState().user,
     id: 'user-1',
-    totalXp: 163 + 25, // 188
+    totalXp: 165 + 25, // 190
     updatedAt: '2026-10-25T14:15:00.000Z',
   });
   const concurrentDesktopExport = await exportAll('desktop-device-123');
@@ -306,7 +306,7 @@ async function runTest() {
   await db.userProfile.put({
     ...mobileExport.tables.userProfile[0],
     id: 'user-1',
-    totalXp: 163 + 25, // 188
+    totalXp: 165 + 25, // 190
     updatedAt: '2026-10-25T14:16:00.000Z',
   });
   const concurrentMobileExport = await exportAll('mobile-device-456');
@@ -322,7 +322,7 @@ async function runTest() {
   console.log('Mobile sync result:', mobileSyncRes);
   const mobileFinalXp = useEkirumStore.getState().user.totalXp;
   console.log('Mobile final XP:', mobileFinalXp);
-  assert.strictEqual(mobileFinalXp, 163 + 25 + 25, 'Mobile should have 213 XP (163 + 25 + 25)');
+  assert.strictEqual(mobileFinalXp, 165 + 25 + 25, 'Mobile should have 215 XP (165 + 25 + 25)');
 
   // Now Desktop syncs Mobile
   console.log('Desktop merging Mobile concurrent changes...');
@@ -345,7 +345,7 @@ async function runTest() {
   console.log('Desktop final sync result:', desktopFinalRes);
   const desktopFinalXp = useEkirumStore.getState().user.totalXp;
   console.log('Desktop final XP:', desktopFinalXp);
-  assert.strictEqual(desktopFinalXp, 163 + 25 + 25, 'Desktop should have 213 XP (163 + 25 + 25)');
+  assert.strictEqual(desktopFinalXp, 165 + 25 + 25, 'Desktop should have 215 XP (165 + 25 + 25)');
 
   console.log('\n🎉 ALL CONCURRENT SYNC SCENARIOS FULLY CONVERGED!');
 }

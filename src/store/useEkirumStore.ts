@@ -1086,8 +1086,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           const remainingCap = Math.max(0, DAILY_XP_CAP - currentDailyEarned);
 
           let potentialXp = 10;
-          if (task.priority === 'p1') potentialXp += 5;
-          else if (task.priority === 'p2') potentialXp += 3;
+          if (task.priority === 'p1') potentialXp += 10;
+          else if (task.priority === 'p2') potentialXp += 5;
+          else if (task.priority === 'p3') potentialXp += 1;
 
           if (task.dueDate && !isTaskOverdue(task, todayStr)) {
             potentialXp += 5; // Timeliness bonus

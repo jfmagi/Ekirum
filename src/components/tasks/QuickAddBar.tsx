@@ -354,17 +354,17 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
   };
 
   const priorityBadgeLabels: Record<Priority, string> = {
-    p1: 'P1 · Urgent',
-    p2: 'P2 · High',
-    p3: 'P3 · Low',
-    p4: 'P4 · None',
+    p1: 'P1',
+    p2: 'P2',
+    p3: 'P3',
+    p4: 'P4',
   };
 
   const priorityTooltips: Record<Priority, string> = {
-    p1: 'P1 — Urgent / High Focus',
-    p2: 'P2 — High Focus',
-    p3: 'P3 — Low Focus',
-    p4: 'P4 — None / Default',
+    p1: 'P1',
+    p2: 'P2',
+    p3: 'P3',
+    p4: 'P4',
   };
 
   const handleContainerBlur = (e: React.FocusEvent) => {
@@ -959,10 +959,10 @@ export const QuickAddBar: React.FC<QuickAddBarProps> = ({
                     </div>
                     {(
                       [
-                        { id: 'p1', label: 'P1 · Urgent', textClass: 'text-crimson', dotClass: 'bg-crimson' },
-                        { id: 'p2', label: 'P2 · High', textClass: 'text-amber-700', dotClass: 'bg-amber-600' },
-                        { id: 'p3', label: 'P3 · Low', textClass: 'text-stone-700', dotClass: 'bg-stone-500' },
-                        { id: 'p4', label: 'P4 · None', textClass: 'text-stone-500', dotClass: 'bg-stone-300' },
+                        { id: 'p1', label: 'P1', textClass: 'text-crimson', dotClass: 'bg-crimson' },
+                        { id: 'p2', label: 'P2', textClass: 'text-amber-700', dotClass: 'bg-amber-600' },
+                        { id: 'p3', label: 'P3', textClass: 'text-stone-700', dotClass: 'bg-stone-500' },
+                        { id: 'p4', label: 'P4', textClass: 'text-stone-500', dotClass: 'bg-stone-300' },
                       ] as const
                     ).map((opt) => (
                       <button
