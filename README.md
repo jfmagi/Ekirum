@@ -1,14 +1,14 @@
 # Ekirum
 
 > **A local-first, privacy-respecting personal mastery system.**  
-> Plan tasks, cultivate disciplines, defuse thought entanglements, and grow your character — completely offline and sovereign.
+> Plan tasks, cultivate discipline, untangle thoughts, and build character: offline and sovereign.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-stone.svg)](LICENSE)
 [![React 19](https://img.shields.io/badge/React-19-black.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)](https://www.typescriptlang.org/)
 [![Local--First](https://img.shields.io/badge/Storage-IndexedDB-emerald.svg)]()
 
-Ekirum pairs minimalist task planning with a quiet RPG progression loop inspired by Acceptance and Commitment Therapy (ACT). All data remains on your physical device via IndexedDB; nothing touches a remote server unless you configure peer folder synchronization.
+Ekirum anchors minimalist task planning in an RPG progression loop. All data remains on your physical device via IndexedDB; nothing touches a remote server unless you configure peer folder synchronization.
 
 ---
 
@@ -16,7 +16,7 @@ Ekirum pairs minimalist task planning with a quiet RPG progression loop inspired
 
 - **Radical Privacy**: Zero accounts, zero telemetry, zero surveillance. Your thoughts and plans belong strictly to you.
 - **Cognitive Defusion**: A built-in sanctuary to step back from distressing thoughts, sealed with AES-GCM 256-bit client-side encryption or burned to ash.
-- **Compound Growth**: Projects map directly to character Skills. Completing tasks, honoring habits, and finishing books advance your Rank from *Novice* to *Grandmaster*.
+- **Gamified Growth**: Projects map directly to character Skills. Completing tasks, honoring habits, and finishing books advance your Rank from *Novice* to *Grandmaster*.
 - **Quiet Interface**: Warm stone, charcoal, and crimson typography designed to reduce cognitive friction and foster calm, sustained focus.
 
 ---
