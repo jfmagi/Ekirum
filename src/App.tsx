@@ -161,6 +161,11 @@ export const App: React.FC = () => {
         return;
       }
 
+      // The introduction owns the keyboard while it is open
+      if (useEkirumStore.getState().onboardingModalOpen) {
+        return;
+      }
+
       if (e.key.toLowerCase() === 'q') {
         e.preventDefault();
         setQuickAddOpen(true);

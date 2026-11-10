@@ -329,7 +329,36 @@ async function runTests() {
   if (countAfterReload !== 0) {
     throw new Error(`initializeDatabase() re-seeded sample data after clearAllData! Found ${countAfterReload} tasks`);
   }
-  console.log('  ✓ Database remains cleared after initializeDatabase() (no unwanted re-seeding).');
+  // Test 8: Onboarding Intro & Replay Store Behavior
+  console.log('\nTest 8: Onboarding intro & replay store state...');
+  const testStore = useEkirumStore.getState();
+  if (testStore.onboardingReplay !== false) {
+    throw new Error('Expected onboardingReplay to default to false');
+  }
+
+  // Open replay mode
+  testStore.openIntroReplay();
+  if (!useEkirumStore.getState().onboardingModalOpen || !useEkirumStore.getState().onboardingReplay) {
+    throw new Error('openIntroReplay() should set both onboardingModalOpen and onboardingReplay to true');
+  }
+
+  // Closing modal clears replay mode
+  testStore.setOnboardingModalOpen(false);
+  if (useEkirumStore.getState().onboardingReplay !== false) {
+    throw new Error('setOnboardingModalOpen(false) should clear onboardingReplay flag');
+  }
+
+  // Complete onboarding sets user.onboardingCompleted and clears flags
+  testStore.openIntroReplay();
+  await testStore.completeOnboarding('Marcus', undefined);
+  const updatedUser = useEkirumStore.getState().user;
+  if (updatedUser.name !== 'Marcus' || !updatedUser.onboardingCompleted) {
+    throw new Error('completeOnboarding() did not properly update user profile');
+  }
+  if (useEkirumStore.getState().onboardingModalOpen || useEkirumStore.getState().onboardingReplay) {
+    throw new Error('completeOnboarding() should reset modal open and replay flags to false');
+  }
+  console.log('  ✓ Onboarding intro and replay lifecycle verified.');
 
   console.log('\n🎉 ALL FIRST-LAUNCH, VIEW ROUTING, AND CLOCK-SKEW TESTS PASSED!\n');
 }

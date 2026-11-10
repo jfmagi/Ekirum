@@ -17,6 +17,7 @@ import {
   BookOpen,
   FileDown,
   Wind,
+  PlayCircle,
 } from 'lucide-react';
 
 type PaletteItem = {
@@ -46,6 +47,7 @@ const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({ onClose }) 
     setHelpModalOpen,
     setExportPdfModalOpen,
     toggleSound,
+    openIntroReplay,
   } = useEkirumStore(
     useShallow((s) => ({
       setCurrentView: s.setCurrentView,
@@ -60,6 +62,7 @@ const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({ onClose }) 
       setHelpModalOpen: s.setHelpModalOpen,
       setExportPdfModalOpen: s.setExportPdfModalOpen,
       toggleSound: s.toggleSound,
+      openIntroReplay: s.openIntroReplay,
     }))
   );
 
@@ -217,6 +220,17 @@ const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({ onClose }) 
           setHelpModalOpen(true);
         },
       },
+      {
+        id: 'act-replay-intro',
+        type: 'action',
+        title: 'Replay Introduction',
+        subtitle: 'Walk through the short welcome tour again',
+        icon: <PlayCircle size={14} className="text-stone-600" />,
+        action: () => {
+          onClose();
+          openIntroReplay();
+        },
+      },
     ],
     [
       setCurrentView,
@@ -227,6 +241,7 @@ const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({ onClose }) 
       setBackupModalOpen,
       toggleSound,
       setHelpModalOpen,
+      openIntroReplay,
     ]
   );
 

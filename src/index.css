@@ -243,3 +243,25 @@
   animation: ember-burn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* Introduction step transition */
+@keyframes intro-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-intro-step {
+  animation: intro-step-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-intro-step {
+    animation: none;
+  }
+}
+

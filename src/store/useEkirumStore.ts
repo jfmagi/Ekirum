@@ -252,7 +252,9 @@ export interface EkirumStore {
   dismissCelebration: () => void;
   toggleSound: () => void;
   onboardingModalOpen: boolean;
+  onboardingReplay: boolean;
   setOnboardingModalOpen: (open: boolean) => void;
+  openIntroReplay: () => void;
   completeOnboarding: (name: string, avatar?: string) => Promise<void>;
 
   // Deletion Undo Safety
@@ -473,6 +475,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         celebration: null,
         mobileSidebarOpen: false,
         onboardingModalOpen: false,
+        onboardingReplay: false,
 
         backupStatus: null,
         isSyncing: false,
@@ -511,7 +514,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       setEditingHabitId: (id) => set({ editingHabitId: id }),
       setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
       dismissCelebration: () => set({ celebration: null }),
-      setOnboardingModalOpen: (open) => set({ onboardingModalOpen: open }),
+      setOnboardingModalOpen: (open) =>
+        set(open ? { onboardingModalOpen: true } : { onboardingModalOpen: false, onboardingReplay: false }),
+      openIntroReplay: () => set({ onboardingModalOpen: true, onboardingReplay: true }),
 
       completeOnboarding: async (name: string, avatar?: string) => {
         const trimmedName = clampString(name.trim() || 'Ekirum', MAX_LENGTHS.USER_NAME, 'Ekirum');
@@ -526,7 +531,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem('ekirum_onboarded_v1', 'true');
         }
-        set({ onboardingModalOpen: false });
+        set({ onboardingModalOpen: false, onboardingReplay: false });
       },
 
       toggleSound: () => {
