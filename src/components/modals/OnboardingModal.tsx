@@ -166,7 +166,7 @@ export const OnboardingModal: React.FC = () => {
 
   const displayMonogram = (name.trim() || 'Ekirum').slice(0, 2).toUpperCase();
 
-  const introSteps = [
+  const introSteps: { title: string; body?: React.ReactNode; preview: React.ReactNode }[] = [
     {
       title: 'Welcome to Ekirum',
       body: 'Every project you create becomes a skill. Completing tasks earns XP for that skill, so your character grows with the work you actually do.',
@@ -183,7 +183,6 @@ export const OnboardingModal: React.FC = () => {
     },
     {
       title: 'Beyond tasks',
-      body: 'Three more spaces in the sidebar. Each one feeds your character in its own way.',
       preview: <SpacesPreview />,
     },
   ];
@@ -225,9 +224,11 @@ export const OnboardingModal: React.FC = () => {
                 >
                   {current.title}
                 </h2>
-                <p className="text-xs sm:text-sm text-stone-600 font-sans leading-relaxed max-w-sm mx-auto">
-                  {current.body}
-                </p>
+                {current.body && (
+                  <p className="text-xs sm:text-sm text-stone-600 font-sans leading-relaxed max-w-sm mx-auto">
+                    {current.body}
+                  </p>
+                )}
               </div>
               {current.preview}
             </div>
