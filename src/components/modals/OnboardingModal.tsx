@@ -176,7 +176,7 @@ export const OnboardingModal: React.FC = () => {
       title: 'Add tasks in plain words',
       body: (
         <>
-          Press <kbd className="px-1.5 py-0.5 bg-stone-100 border border-stone-200 rounded font-mono text-[11px] text-charcoal">Q</kbd> and type. Dates, times, priorities, and projects are picked up as you write. P1 tasks are worth the most XP.
+          Press <kbd className="px-1.5 py-0.5 bg-stone-100 border border-stone-200 rounded font-mono text-[11px] text-charcoal">Q</kbd> and type. Dates, times, priorities, and projects are picked up as you write.
         </>
       ),
       preview: <QuickAddPreview />,
