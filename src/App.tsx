@@ -9,6 +9,7 @@ import { TaskTimelineView } from './components/tasks/TaskTimelineView';
 import { CharacterView } from './components/character/CharacterView';
 import { HabitTrackerView } from './components/habits/HabitTrackerView';
 import { LibraryView } from './components/library/LibraryView';
+import { GratitudeView } from './components/gratitude/GratitudeView';
 import { DefusionView } from './components/defusion/DefusionView';
 import { QuickAddBar } from './components/tasks/QuickAddBar';
 import { TaskDetailModal } from './components/tasks/TaskDetailModal';
@@ -195,6 +196,10 @@ export const App: React.FC = () => {
 
     if (currentView === 'library') {
       return <LibraryView />;
+    }
+
+    if (currentView === 'gratitude') {
+      return <GratitudeView />;
     }
 
     if (currentView === 'defusion') {

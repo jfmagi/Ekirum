@@ -1,7 +1,8 @@
-import { DefusionEntry, DefusionVaultConfig } from '../types';
+import { DefusionEntry, DefusionVaultConfig, GratitudeEntry } from '../types';
 import { MAX_LENGTHS, clampString } from './validation';
 
 export const DEFUSION_XP = 10;
+export const GRATITUDE_XP = 10;
 
 export const DEFUSION_PREFIXES = [
   "I notice I'm having the thought that…",
@@ -13,6 +14,11 @@ export const DEFUSION_PREFIXES = [
 export interface DecryptedDefusionPayload {
   text: string;
   prefix?: string;
+}
+
+export interface DecryptedGratitudePayload {
+  items: string[];
+  note?: string;
 }
 
 const PBKDF2_ITERATIONS = 100_000;
@@ -281,13 +287,13 @@ export async function unlockDefusionVault(
 }
 
 /**
- * Encrypts a thought payload using hybrid RSA-OAEP (2048-bit) + AES-256-GCM.
- * Requires ONLY the public key JWK, so thoughts can be dumped and sealed at any time
+ * Encrypts an arbitrary JSON-serializable payload using hybrid RSA-OAEP (2048-bit) + AES-256-GCM.
+ * Requires ONLY the public key JWK, so entries can be sealed at any time
  * without unlocking the vault or keeping the passphrase in memory.
  */
-export async function encryptDefusionPayload(
+async function sealJsonWithVaultPublicKey(
   publicKeyJwkStr: string,
-  payload: DecryptedDefusionPayload
+  payload: unknown
 ): Promise<{ ciphertext: string; iv: string; wrappedKey: string }> {
   const subtle = getSubtleCrypto();
   const jwk = JSON.parse(publicKeyJwkStr) as JsonWebKey;
@@ -300,7 +306,6 @@ export async function encryptDefusionPayload(
     ['encrypt']
   );
 
-  // Generate ephemeral 256-bit AES-GCM key and 96-bit IV for this thought
   const rawAesKey = getRandomBytes(32);
   const iv = getRandomBytes(12);
 
@@ -312,14 +317,7 @@ export async function encryptDefusionPayload(
     ['encrypt']
   );
 
-  const cleanPayload: DecryptedDefusionPayload = {
-    text: clampString(payload.text.trim(), MAX_LENGTHS.DEFUSION_TEXT),
-    ...(payload.prefix && payload.prefix.trim()
-      ? { prefix: clampString(payload.prefix.trim(), MAX_LENGTHS.DEFUSION_PREFIX) }
-      : {}),
-  };
-
-  const encoded = new TextEncoder().encode(JSON.stringify(cleanPayload));
+  const encoded = new TextEncoder().encode(JSON.stringify(payload));
   const encryptedBuf = await subtle.encrypt(
     { name: 'AES-GCM', iv: toArrayBuffer(iv) },
     aesKey,
@@ -340,20 +338,20 @@ export async function encryptDefusionPayload(
 }
 
 /**
- * Decrypts a single sealed DefusionEntry using the unlocked RSA-OAEP private key.
+ * Decrypts a sealed hybrid payload using the unlocked RSA-OAEP private key.
  */
-export async function decryptDefusionEntry(
+async function unsealJsonWithPrivateKey(
   privateKey: CryptoKey,
-  entry: Pick<DefusionEntry, 'ciphertext' | 'iv' | 'wrappedKey' | 'burned'>
-): Promise<DecryptedDefusionPayload | null> {
-  if (entry.burned || !entry.ciphertext || !entry.iv || !entry.wrappedKey) {
+  sealed: { ciphertext?: string; iv?: string; wrappedKey?: string }
+): Promise<any | null> {
+  if (!sealed.ciphertext || !sealed.iv || !sealed.wrappedKey) {
     return null;
   }
 
   const subtle = getSubtleCrypto();
-  const wrappedKeyBytes = base64ToBytes(entry.wrappedKey);
-  const ivBytes = base64ToBytes(entry.iv);
-  const ciphertextBytes = base64ToBytes(entry.ciphertext);
+  const wrappedKeyBytes = base64ToBytes(sealed.wrappedKey);
+  const ivBytes = base64ToBytes(sealed.iv);
+  const ciphertextBytes = base64ToBytes(sealed.ciphertext);
 
   const rawAesKeyBuf = await subtle.decrypt(
     { name: 'RSA-OAEP' },
@@ -375,13 +373,82 @@ export async function decryptDefusionEntry(
     toArrayBuffer(ciphertextBytes)
   );
 
-  const jsonStr = new TextDecoder().decode(decryptedBuf);
-  const parsed = JSON.parse(jsonStr);
+  return JSON.parse(new TextDecoder().decode(decryptedBuf));
+}
+
+/**
+ * Encrypts a thought payload using hybrid RSA-OAEP (2048-bit) + AES-256-GCM.
+ */
+export async function encryptDefusionPayload(
+  publicKeyJwkStr: string,
+  payload: DecryptedDefusionPayload
+): Promise<{ ciphertext: string; iv: string; wrappedKey: string }> {
+  const cleanPayload: DecryptedDefusionPayload = {
+    text: clampString(payload.text.trim(), MAX_LENGTHS.DEFUSION_TEXT),
+    ...(payload.prefix && payload.prefix.trim()
+      ? { prefix: clampString(payload.prefix.trim(), MAX_LENGTHS.DEFUSION_PREFIX) }
+      : {}),
+  };
+  return sealJsonWithVaultPublicKey(publicKeyJwkStr, cleanPayload);
+}
+
+/**
+ * Decrypts a single sealed DefusionEntry using the unlocked RSA-OAEP private key.
+ */
+export async function decryptDefusionEntry(
+  privateKey: CryptoKey,
+  entry: Pick<DefusionEntry, 'ciphertext' | 'iv' | 'wrappedKey' | 'burned'>
+): Promise<DecryptedDefusionPayload | null> {
+  if (entry.burned) return null;
+  const parsed = await unsealJsonWithPrivateKey(privateKey, entry);
   if (!parsed || typeof parsed.text !== 'string') {
     return null;
   }
   return {
     text: parsed.text,
     ...(typeof parsed.prefix === 'string' && parsed.prefix.trim() ? { prefix: parsed.prefix } : {}),
+  };
+}
+
+/**
+ * Encrypts a gratitude journal payload (up to 3 items + optional reflection note)
+ * using the shared vault RSA-OAEP public key.
+ */
+export async function encryptGratitudePayload(
+  publicKeyJwkStr: string,
+  payload: DecryptedGratitudePayload
+): Promise<{ ciphertext: string; iv: string; wrappedKey: string }> {
+  const cleanItems = payload.items
+    .map((item) => clampString(item.trim(), MAX_LENGTHS.GRATITUDE_ITEM))
+    .filter(Boolean)
+    .slice(0, 3);
+  const cleanNote = payload.note?.trim()
+    ? clampString(payload.note.trim(), MAX_LENGTHS.GRATITUDE_NOTE)
+    : undefined;
+
+  const cleanPayload: DecryptedGratitudePayload = {
+    items: cleanItems,
+    ...(cleanNote ? { note: cleanNote } : {}),
+  };
+  return sealJsonWithVaultPublicKey(publicKeyJwkStr, cleanPayload);
+}
+
+/**
+ * Decrypts a single sealed GratitudeEntry using the unlocked RSA-OAEP private key.
+ */
+export async function decryptGratitudeEntry(
+  privateKey: CryptoKey,
+  entry: Pick<GratitudeEntry, 'ciphertext' | 'iv' | 'wrappedKey'>
+): Promise<DecryptedGratitudePayload | null> {
+  const parsed = await unsealJsonWithPrivateKey(privateKey, entry);
+  if (!parsed || !Array.isArray(parsed.items)) {
+    return null;
+  }
+  const items = parsed.items
+    .filter((i: any) => typeof i === 'string' && i.trim().length > 0)
+    .slice(0, 3);
+  return {
+    items,
+    ...(typeof parsed.note === 'string' && parsed.note.trim() ? { note: parsed.note } : {}),
   };
 }

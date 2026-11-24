@@ -15,6 +15,7 @@ import {
   LibraryItem,
   LibraryItemType,
   LibraryDifficulty,
+  GratitudeEntry,
   DefusionEntry,
   DefusionVaultConfig,
   DAILY_XP_CAP,
@@ -35,7 +36,9 @@ import { getLibraryXp } from '../lib/library';
 import {
   initializeDefusionVault,
   encryptDefusionPayload,
+  encryptGratitudePayload,
   DEFUSION_XP,
+  GRATITUDE_XP,
 } from '../lib/defusionCrypto';
 import { formatLocalDate, isTaskOverdue } from '../lib/dateParser';
 export { formatLocalDate, isTaskOverdue };
@@ -196,6 +199,7 @@ export interface EkirumStore {
   skills: Skill[];
   habits: Habit[];
   libraryItems: LibraryItem[];
+  gratitudeEntries: GratitudeEntry[];
   defusionEntries: DefusionEntry[];
   defusionVault: DefusionVaultConfig | null;
   achievements: Achievement[];
@@ -321,6 +325,16 @@ export interface EkirumStore {
   completeLibraryItem: (id: string, details?: { review?: string; finishedDate?: string }) => Promise<void>;
   reopenLibraryItem: (id: string) => void;
 
+  // Actions - Gratitude Journal (encrypted daily reflections sharing vault key)
+  saveGratitudeEntry: (data: {
+    id?: string;
+    items: string[];
+    note?: string;
+    projectId?: string;
+    date?: string;
+  }) => Promise<{ entry: GratitudeEntry | null; xpEarned: number }>;
+  deleteGratitudeEntry: (id: string) => void;
+
   // Actions - Defusion (encrypted thought vault)
   defuseThought: (data: {
     text: string;
@@ -359,6 +373,7 @@ export interface EkirumStore {
 const inFlightTaskActions = new Set<string>();
 const inFlightHabitActions = new Set<string>();
 const inFlightLibraryActions = new Set<string>();
+const inFlightGratitudeActions = new Set<string>();
 let initStoragePromise: Promise<void> | null = null;
 
 /**
@@ -454,6 +469,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         skills: INITIAL_SKILLS,
         habits: INITIAL_HABITS,
         libraryItems: [],
+        gratitudeEntries: [],
         defusionEntries: [],
         defusionVault: null,
         achievements: INITIAL_ACHIEVEMENTS,
@@ -549,7 +565,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       },
 
       evaluateAndSyncAchievements: () => {
-        const { tasks, skills, habits, achievements, user, projects, libraryItems, defusionEntries } = get();
+        const { tasks, skills, habits, achievements, user, projects, libraryItems, defusionEntries, gratitudeEntries } = get();
         const { updatedAchievements, newlyUnlocked, earnedXpBonus, hasChanges, projectSkillXpGains } = evaluateAchievements(
           tasks,
           skills,
@@ -558,7 +574,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           user,
           projects,
           libraryItems,
-          defusionEntries
+          defusionEntries,
+          gratitudeEntries
         );
         const { updatedSkills } = applySkillXpGains(skills, projectSkillXpGains);
         const hasSkillGains = Boolean(projectSkillXpGains && Object.keys(projectSkillXpGains).length > 0);
@@ -670,6 +687,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             allAchievements,
             allUsers,
             allLibrary,
+            allGratitudeEntries,
             allDefusionEntries,
             allDefusionVaults,
           ] = await Promise.all([
@@ -680,11 +698,15 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             db.achievements.toArray(),
             db.userProfile.toArray(),
             db.libraryItems.toArray(),
+            db.gratitudeEntries.toArray(),
             db.defusionEntries.toArray(),
             db.defusionVault.toArray(),
           ]);
 
           const activeLibrary = allLibrary.filter((i) => !i.isDeleted);
+          const activeGratitudeEntries = allGratitudeEntries
+            .filter((e) => !e.isDeleted)
+            .sort((a, b) => b.date.localeCompare(a.date));
           const activeDefusionEntries = allDefusionEntries
             .filter((e) => !e.isDeleted)
             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -783,7 +805,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             currentUser,
             activeProjects,
             activeLibrary,
-            activeDefusionEntries
+            activeDefusionEntries,
+            activeGratitudeEntries
           );
 
           const { updatedSkills } = applySkillXpGains(activeSkills, projectSkillXpGains);
@@ -842,6 +865,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               skills: updatedSkills,
               habits: activeHabits,
               libraryItems: activeLibrary,
+              gratitudeEntries: activeGratitudeEntries,
               defusionEntries: activeDefusionEntries,
               defusionVault: activeDefusionVault,
               achievements: updatedAchievements,
@@ -1242,7 +1266,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             updatedUser,
             get().projects,
             get().libraryItems,
-            get().defusionEntries
+            get().defusionEntries,
+            get().gratitudeEntries
           );
 
           const { updatedSkills: finalSkills, leveledUpSkills: projLeveledUpSkills } = applySkillXpGains(
@@ -1477,7 +1502,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           get().user,
           updatedProjects,
           get().libraryItems,
-          get().defusionEntries
+          get().defusionEntries,
+          get().gratitudeEntries
         );
 
         const { updatedSkills: finalSkills } = applySkillXpGains(updatedSkills, projectSkillXpGains);
@@ -1576,7 +1602,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             state.user,
             updatedProjects,
             state.libraryItems,
-            state.defusionEntries
+            state.defusionEntries,
+            state.gratitudeEntries
           );
           if (hasChanges) {
             db.achievements.bulkPut(updatedAchievements).catch(saveCatch('updating achievements'));
@@ -1620,7 +1647,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             state.user,
             updatedProjects,
             state.libraryItems,
-            state.defusionEntries
+            state.defusionEntries,
+            state.gratitudeEntries
           );
           if (hasChanges) {
             db.achievements.bulkPut(updatedAchievements).catch(saveCatch('updating achievements'));
@@ -1820,7 +1848,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             updatedUser,
             get().projects,
             get().libraryItems,
-            get().defusionEntries
+            get().defusionEntries,
+            get().gratitudeEntries
           );
 
           const { updatedSkills: finalSkills, leveledUpSkills: projLeveledUpSkills } = applySkillXpGains(
@@ -2062,7 +2091,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             updatedUser,
             get().projects,
             updatedItems,
-            get().defusionEntries
+            get().defusionEntries,
+            get().gratitudeEntries
           );
 
           const { updatedSkills: finalSkills, leveledUpSkills: projLeveledUpSkills } = applySkillXpGains(
@@ -2143,6 +2173,237 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
         } finally {
           inFlightLibraryActions.delete(id);
         }
+      },
+
+      saveGratitudeEntry: async (data) => {
+        const cleanItems = data.items.map((i) => i.trim()).filter(Boolean).slice(0, 3);
+        if (cleanItems.length === 0) return { entry: null, xpEarned: 0 };
+
+        const todayStr = formatLocalDate();
+        const entryDate = data.date || todayStr;
+        const entryId = data.id || `grat-${entryDate}`;
+
+        if (inFlightGratitudeActions.has(entryId)) {
+          return { entry: null, xpEarned: 0 };
+        }
+        inFlightGratitudeActions.add(entryId);
+
+        try {
+          const now = new Date().toISOString();
+
+          let currentVault = get().defusionVault;
+          if (!currentVault) {
+            currentVault = await initializeDefusionVault();
+            set({ defusionVault: currentVault });
+            await db.defusionVault.put(currentVault).catch(saveCatch('initializing vault for gratitude'));
+          }
+
+          const encryptedFields = await encryptGratitudePayload(currentVault.publicKeyJwk, {
+            items: cleanItems,
+            note: data.note?.trim() || undefined,
+          });
+
+          const existingDbEntry = await db.gratitudeEntries.get(entryId);
+          const existingActive = get().gratitudeEntries.find((e) => e.id === entryId && !e.isDeleted);
+          const existing = existingActive || existingDbEntry;
+
+          const { projects, skills, user, gratitudeEntries } = get();
+          const alreadyAwarded = Boolean(existing?.xpAwarded);
+          const isEditingActive = Boolean(existing && !existing.isDeleted);
+
+          let earnedXp = 0;
+          if (!alreadyAwarded) {
+            const currentDailyEarned = user.dailyXpDate === todayStr ? (user.dailyXpEarned || 0) : 0;
+            const remainingCap = Math.max(0, DAILY_XP_CAP - currentDailyEarned);
+            earnedXp = Math.min(GRATITUDE_XP, remainingCap);
+          }
+
+          const savedEntry: GratitudeEntry = {
+            id: entryId,
+            date: existing?.date || entryDate,
+            projectId: data.projectId || undefined,
+            ...encryptedFields,
+            xpAwarded: true,
+            xpEarned: alreadyAwarded ? existing?.xpEarned : earnedXp,
+            createdAt: existing?.createdAt || now,
+            updatedAt: now,
+            isDeleted: false,
+            deletedAt: undefined,
+          };
+
+          const existsInList = gratitudeEntries.some((e) => e.id === entryId);
+          const updatedEntries = (
+            existsInList
+              ? gratitudeEntries.map((e) => (e.id === entryId ? savedEntry : e))
+              : [savedEntry, ...gratitudeEntries]
+          ).sort((a, b) => b.date.localeCompare(a.date));
+
+          if (isEditingActive || alreadyAwarded) {
+            set({ gratitudeEntries: updatedEntries });
+            await db.gratitudeEntries.put(savedEntry).catch(saveCatch('updating gratitude entry'));
+            sound.playClick();
+            return { entry: savedEntry, xpEarned: 0 };
+          }
+
+          const currentDailyEarned = user.dailyXpDate === todayStr ? (user.dailyXpEarned || 0) : 0;
+          const newDailyEarned = currentDailyEarned + earnedXp;
+
+          let updatedSkills = [...skills];
+          let leveledUpSkillName: string | null = null;
+          let leveledUpNewLevel: number | null = null;
+
+          if (data.projectId) {
+            const project = projects.find((p) => p.id === data.projectId);
+            const skillIndex = project ? skills.findIndex((s) => s.id === project.skillId) : -1;
+            if (skillIndex !== -1) {
+              const skill = skills[skillIndex];
+              const oldLevel = skill.level;
+              const newXp = skill.xp + earnedXp;
+              const newLevel = calculateSkillLevel(newXp);
+              const lastDate = skill.lastCompletedDate;
+              let newStreak = skill.streak;
+              if (lastDate !== todayStr) {
+                const yesterdayDate = new Date();
+                yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+                const yesterday = formatLocalDate(yesterdayDate);
+                newStreak = lastDate === yesterday ? skill.streak + 1 : 1;
+              }
+              if (newLevel > oldLevel) {
+                leveledUpSkillName = skill.name;
+                leveledUpNewLevel = newLevel;
+              }
+              updatedSkills[skillIndex] = {
+                ...skill,
+                xp: newXp,
+                level: newLevel,
+                xpToNextLevel: getXpRequiredForNextLevel(newLevel),
+                streak: newStreak,
+                lastCompletedDate: todayStr,
+                totalCompleted: skill.totalCompleted + 1,
+                updatedAt: now,
+              };
+            }
+          }
+
+          const newUserXp = user.totalXp + earnedXp;
+          const { level: derivedLevel } = computeUserLevelAndRank(newUserXp);
+          const newEkirumLevel = Math.max(user.ekirumLevel || 1, derivedLevel);
+          const newEkirumRank = getEkirumRankTitle(newEkirumLevel);
+
+          let updatedUser: UserProfile = {
+            ...user,
+            totalXp: newUserXp,
+            ekirumLevel: newEkirumLevel,
+            ekirumRank: newEkirumRank,
+            dailyXpDate: todayStr,
+            dailyXpEarned: newDailyEarned,
+            updatedAt: now,
+          };
+
+          const { updatedAchievements, newlyUnlocked, earnedXpBonus, hasChanges, projectSkillXpGains } = evaluateAchievements(
+            get().tasks,
+            updatedSkills,
+            get().habits,
+            get().achievements,
+            updatedUser,
+            get().projects,
+            get().libraryItems,
+            get().defusionEntries,
+            updatedEntries
+          );
+
+          const { updatedSkills: finalSkills, leveledUpSkills: projLeveledUpSkills } = applySkillXpGains(
+            updatedSkills,
+            projectSkillXpGains
+          );
+
+          if (newlyUnlocked.length > 0 || earnedXpBonus > 0) {
+            const currentAchIds = new Set(updatedUser.achievements || []);
+            newlyUnlocked.forEach((a) => currentAchIds.add(a.id));
+            const finalUserXp = updatedUser.totalXp + earnedXpBonus;
+            const { level: derivedFinalLevel } = computeUserLevelAndRank(finalUserXp);
+            const finalLevel = Math.max(updatedUser.ekirumLevel || 1, derivedFinalLevel);
+            const finalRank = getEkirumRankTitle(finalLevel);
+            updatedUser = {
+              ...updatedUser,
+              totalXp: finalUserXp,
+              ekirumLevel: finalLevel,
+              ekirumRank: finalRank,
+              achievements: Array.from(currentAchIds),
+            };
+          }
+
+          let activeLeveledUpName = leveledUpSkillName;
+          let activeLeveledUpNewLevel = leveledUpNewLevel;
+          if (!activeLeveledUpName && projLeveledUpSkills.length > 0) {
+            activeLeveledUpName = projLeveledUpSkills[0].name;
+            activeLeveledUpNewLevel = projLeveledUpSkills[0].newLevel;
+          }
+
+          let celebration = get().celebration;
+          if (activeLeveledUpName && activeLeveledUpNewLevel) {
+            sound.playLevelUp();
+            const firstAch = newlyUnlocked.length > 0 ? newlyUnlocked[0] : null;
+            celebration = {
+              show: true,
+              type: 'levelUp' as const,
+              title: `${activeLeveledUpName} Advanced`,
+              subtitle: firstAch
+                ? `Daily gratitude practice elevated your skill to Level ${activeLeveledUpNewLevel} (${getSkillRankTitle(activeLeveledUpNewLevel)}) · Unlocked: ${firstAch.title}`
+                : `Daily gratitude practice elevated your skill to Level ${activeLeveledUpNewLevel} (${getSkillRankTitle(activeLeveledUpNewLevel)})`,
+              xpEarned: earnedXp + earnedXpBonus,
+              newLevel: activeLeveledUpNewLevel,
+            };
+          } else if (newlyUnlocked.length > 0) {
+            sound.playLevelUp();
+            const firstAch = newlyUnlocked[0];
+            celebration = {
+              show: true,
+              type: 'achievement' as const,
+              title: newlyUnlocked.length > 1 ? `${firstAch.title} (+${newlyUnlocked.length - 1} more)` : firstAch.title,
+              subtitle: firstAch.description,
+              xpEarned: earnedXpBonus > 0 ? earnedXpBonus + earnedXp : (firstAch.xpReward || 0),
+            };
+          } else {
+            sound.playTaskComplete();
+          }
+
+          set({
+            gratitudeEntries: updatedEntries,
+            skills: finalSkills,
+            achievements: updatedAchievements,
+            user: updatedUser,
+            celebration,
+          });
+
+          await db.transaction(
+            'rw',
+            [db.gratitudeEntries, db.skills, db.achievements, db.userProfile],
+            async () => {
+              await db.gratitudeEntries.put(savedEntry);
+              if (finalSkills.length > 0) {
+                await db.skills.bulkPut(finalSkills);
+              }
+              if (hasChanges) {
+                await db.achievements.bulkPut(updatedAchievements);
+              }
+              await db.userProfile.put(updatedUser);
+            }
+          ).catch(saveCatch('saving gratitude entry'));
+
+          return { entry: savedEntry, xpEarned: earnedXp };
+        } finally {
+          inFlightGratitudeActions.delete(entryId);
+        }
+      },
+
+      deleteGratitudeEntry: (id) => {
+        const now = new Date().toISOString();
+        set((state) => ({
+          gratitudeEntries: state.gratitudeEntries.filter((e) => e.id !== id),
+        }));
+        db.gratitudeEntries.update(id, { isDeleted: true, deletedAt: now, updatedAt: now }).catch(saveCatch('deleting gratitude entry'));
+        sound.playClick();
       },
 
       defuseThought: async (data) => {
@@ -2240,7 +2501,8 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           updatedUser,
           get().projects,
           get().libraryItems,
-          updatedEntries
+          updatedEntries,
+          get().gratitudeEntries
         );
 
         const { updatedSkills: finalSkills } = applySkillXpGains(updatedSkills, projectSkillXpGains);
@@ -2453,6 +2715,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               db.achievements,
               db.userProfile,
               db.libraryItems,
+              db.gratitudeEntries,
               db.defusionEntries,
               db.defusionVault,
               db.settings,
@@ -2466,6 +2729,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               await db.achievements.clear();
               await db.userProfile.clear();
               await db.libraryItems.clear();
+              await db.gratitudeEntries.clear();
               await db.defusionEntries.clear();
               await db.defusionVault.clear();
               await db.settings.delete('deviceSyncMtimes');
@@ -2500,6 +2764,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             skills: [],
             habits: [],
             libraryItems: [],
+            gratitudeEntries: [],
             defusionEntries: [],
             defusionVault: null,
             achievements: INITIAL_ACHIEVEMENTS,
@@ -2532,6 +2797,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             db.achievements,
             db.userProfile,
             db.libraryItems,
+            db.gratitudeEntries,
             db.defusionEntries,
             db.defusionVault,
             db.settings,
@@ -2545,6 +2811,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             await db.achievements.clear();
             await db.userProfile.clear();
             await db.libraryItems.clear();
+            await db.gratitudeEntries.clear();
             await db.defusionEntries.clear();
             await db.defusionVault.clear();
             await db.settings.delete('deviceSyncMtimes');
@@ -2565,6 +2832,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           skills: INITIAL_SKILLS,
           habits: INITIAL_HABITS,
           libraryItems: [],
+          gratitudeEntries: [],
           defusionEntries: [],
           defusionVault: null,
           achievements: INITIAL_ACHIEVEMENTS,
@@ -2588,6 +2856,7 @@ useEkirumStore.subscribe((state, prevState) => {
     state.projects !== prevState.projects ||
     state.user !== prevState.user ||
     state.libraryItems !== prevState.libraryItems ||
+    state.gratitudeEntries !== prevState.gratitudeEntries ||
     state.defusionEntries !== prevState.defusionEntries ||
     state.defusionVault !== prevState.defusionVault
   ) {

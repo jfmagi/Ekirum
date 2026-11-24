@@ -7,6 +7,7 @@ import {
   Achievement,
   UserProfile,
   LibraryItem,
+  GratitudeEntry,
   DefusionEntry,
   DefusionVaultConfig,
 } from '../types';
@@ -261,6 +262,35 @@ export function sanitizeLibraryItem(raw: any): LibraryItem | null {
         ? raw.finishedDate
         : undefined,
     completedAt: str(raw.completedAt),
+    xpAwarded: Boolean(raw.xpAwarded),
+    xpEarned: typeof raw.xpEarned === 'number' && !isNaN(raw.xpEarned) && raw.xpEarned >= 0 ? raw.xpEarned : undefined,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now,
+    isDeleted: Boolean(raw.isDeleted),
+    deletedAt: typeof raw.deletedAt === 'string' ? raw.deletedAt : undefined,
+  });
+}
+
+export function sanitizeGratitudeEntry(raw: any): GratitudeEntry | null {
+  if (
+    !raw ||
+    typeof raw !== 'object' ||
+    typeof raw.id !== 'string' ||
+    !raw.id.trim() ||
+    typeof raw.date !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(raw.date)
+  ) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  return cleanUndefined<GratitudeEntry>({
+    id: String(raw.id).trim(),
+    date: raw.date,
+    projectId: str(raw.projectId),
+    ciphertext: str(raw.ciphertext),
+    iv: str(raw.iv),
+    wrappedKey: str(raw.wrappedKey),
     xpAwarded: Boolean(raw.xpAwarded),
     xpEarned: typeof raw.xpEarned === 'number' && !isNaN(raw.xpEarned) && raw.xpEarned >= 0 ? raw.xpEarned : undefined,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,

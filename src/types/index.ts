@@ -137,6 +137,16 @@ export interface DefusionEntry extends BaseEntity {
   xpEarned?: number; // Internal XP value for sync delta
 }
 
+export interface GratitudeEntry extends BaseEntity {
+  date: string; // YYYY-MM-DD (one card per day)
+  projectId?: string; // Optional link to Project & Skill (receives 10 XP once per day)
+  ciphertext?: string; // Base64 AES-256-GCM encrypted JSON payload { items: string[]; note?: string }
+  iv?: string; // Base64 12-byte IV for AES-256-GCM
+  wrappedKey?: string; // Base64 RSA-OAEP 2048-bit wrapped AES-256 key
+  xpAwarded?: boolean; // 10 XP granted once per daily entry
+  xpEarned?: number; // Internal XP value for sync delta
+}
+
 export interface DefusionVaultConfig extends BaseEntity {
   id: string; // 'vault-1'
   publicKeyJwk: string; // JSON stringified JsonWebKey for RSA-OAEP 2048 public key
@@ -149,7 +159,7 @@ export interface DefusionVaultConfig extends BaseEntity {
   passphraseConfigured: boolean;
 }
 
-export type ViewType = 'today' | 'calendar' | 'upcoming' | 'completed' | 'habits' | 'library' | 'defusion' | 'character' | 'project' | 'inbox';
+export type ViewType = 'today' | 'calendar' | 'upcoming' | 'completed' | 'habits' | 'library' | 'gratitude' | 'defusion' | 'character' | 'project' | 'inbox';
 export type DisplayMode = 'list' | 'timeline' | 'calendar';
 
 export interface BackupTables {
@@ -161,6 +171,7 @@ export interface BackupTables {
   achievements: Achievement[];
   userProfile: UserProfile[];
   libraryItems?: LibraryItem[];
+  gratitudeEntries?: GratitudeEntry[];
   defusionEntries?: DefusionEntry[];
   defusionVault?: DefusionVaultConfig[];
 }

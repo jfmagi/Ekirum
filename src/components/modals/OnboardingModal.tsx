@@ -12,6 +12,7 @@ import {
   Flag,
   Repeat,
   BookOpen,
+  Heart,
   Wind,
   X,
 } from 'lucide-react';
@@ -71,6 +72,7 @@ const SpacesPreview: React.FC = () => {
   const rows = [
     { icon: <Repeat size={14} />, title: 'Habits', text: 'Recurring rituals with streaks.' },
     { icon: <BookOpen size={14} />, title: 'Library', text: 'Books and films, from queue to finished.' },
+    { icon: <Heart size={14} />, title: 'Gratitude journal', text: 'Three daily gratitudes, sealed with your vault.' },
     { icon: <Wind size={14} />, title: 'Defusion chamber', text: 'Write a thought down, then seal it or burn it.' },
   ];
   return (

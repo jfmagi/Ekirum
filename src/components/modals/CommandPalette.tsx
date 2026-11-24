@@ -16,6 +16,7 @@ import {
   HelpCircle,
   BookOpen,
   FileDown,
+  Heart,
   Wind,
   PlayCircle,
 } from 'lucide-react';
@@ -118,6 +119,17 @@ const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({ onClose }) 
         icon: <BookOpen size={14} className="text-stone-500" />,
         action: () => {
           setCurrentView('library');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-gratitude',
+        type: 'nav',
+        title: 'Go to Gratitude',
+        subtitle: 'Write three daily gratitudes in your encrypted journal',
+        icon: <Heart size={14} className="text-stone-500" />,
+        action: () => {
+          setCurrentView('gratitude');
           onClose();
         },
       },

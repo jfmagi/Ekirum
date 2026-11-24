@@ -9,6 +9,7 @@ import {
   Achievement,
   UserProfile,
   LibraryItem,
+  GratitudeEntry,
   DefusionEntry,
   DefusionVaultConfig,
 } from '../types';
@@ -23,6 +24,7 @@ import {
   sanitizeAchievement,
   sanitizeUserProfile,
   sanitizeLibraryItem,
+  sanitizeGratitudeEntry,
   sanitizeDefusionEntry,
   sanitizeDefusionVaultConfig,
 } from './schemaSanitizers';
@@ -53,9 +55,9 @@ export async function compactTombstones(cutoffDays = 60): Promise<number> {
 
   await db.transaction(
     'rw',
-    [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.libraryItems, db.defusionEntries],
+    [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.libraryItems, db.gratitudeEntries, db.defusionEntries],
     async () => {
-      const tables = [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.libraryItems, db.defusionEntries];
+      const tables = [db.tasks, db.projects, db.skills, db.habits, db.habitEvents, db.libraryItems, db.gratitudeEntries, db.defusionEntries];
       for (const table of tables) {
         const oldDeletedKeys = await table
           .filter((r: any) => Boolean(r.isDeleted) && typeof r.updatedAt === 'string' && r.updatedAt < cutoffTime)
@@ -89,6 +91,7 @@ export async function exportAll(
     achievements,
     userProfile,
     libraryItems,
+    gratitudeEntries,
     defusionEntries,
     defusionVault,
   ] = await Promise.all([
@@ -100,6 +103,7 @@ export async function exportAll(
     db.achievements.toArray(),
     db.userProfile.toArray(),
     db.libraryItems.toArray(),
+    db.gratitudeEntries.toArray(),
     db.defusionEntries.toArray(),
     db.defusionVault.toArray(),
   ]);
@@ -119,6 +123,7 @@ export async function exportAll(
       achievements,
       userProfile,
       libraryItems,
+      gratitudeEntries,
       defusionEntries,
       defusionVault,
     },
@@ -295,6 +300,48 @@ export function mergeLibraryItems(
     xpEarned: xpAwarded ? xpEarned : base.xpEarned,
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
+
+  if (!isSubstantiveRecordEqual(result, existing)) {
+    result.updatedAt = (isIncomingNewer && isSubstantiveRecordEqual(result, incoming))
+      ? incoming.updatedAt
+      : new Date().toISOString();
+  }
+
+  return result;
+}
+
+/**
+ * Custom merger for GratitudeEntry ensuring:
+ * 1. XP grant state is preserved monotonically across devices (never awarded twice for the same day).
+ * 2. Latest edit or deletion wins cleanly via LWW.
+ */
+export function mergeGratitudeEntries(
+  existing: GratitudeEntry,
+  incoming: GratitudeEntry,
+  isIncomingNewer: boolean
+): GratitudeEntry {
+  const existingTime = new Date(existing.updatedAt || 0).getTime();
+  const incomingTime = new Date(incoming.updatedAt || 0).getTime();
+  const xpAwarded = Boolean(existing.xpAwarded || incoming.xpAwarded);
+  const xpEarned = Math.max(existing.xpEarned || 0, incoming.xpEarned || 0);
+
+  let base: GratitudeEntry;
+  if ((existing.isDeleted || incoming.isDeleted) && incomingTime === existingTime) {
+    base = incoming.isDeleted ? incoming : existing;
+  } else {
+    base = isIncomingNewer ? incoming : existing;
+  }
+
+  const result: GratitudeEntry = {
+    ...base,
+    xpAwarded,
+    ...(xpAwarded ? { xpEarned } : {}),
+    updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
+  };
+
+  if (!result.isDeleted) {
+    delete result.deletedAt;
+  }
 
   if (!isSubstantiveRecordEqual(result, existing)) {
     result.updatedAt = (isIncomingNewer && isSubstantiveRecordEqual(result, incoming))
@@ -977,6 +1024,7 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
         db.achievements,
         db.userProfile,
         db.libraryItems,
+        db.gratitudeEntries,
         db.defusionEntries,
         db.defusionVault,
       ],
@@ -1115,6 +1163,30 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
               const skillId = raw.projectId ? projectSkillMap.get(raw.projectId) : undefined;
               if (skillId) {
                 incomingSkillXpDelta[skillId] = (incomingSkillXpDelta[skillId] || 0) + defXp;
+                incomingSkillCompletionsDelta[skillId] = (incomingSkillCompletionsDelta[skillId] || 0) + 1;
+              }
+            }
+          }
+        }
+
+        // 3c. Gratitude entries delta
+        if (Array.isArray(tables.gratitudeEntries) && tables.gratitudeEntries.length > 0) {
+          const entryIds = tables.gratitudeEntries.filter((e: any) => e && e.id).map((e: any) => e.id);
+          const existingEntries = await db.gratitudeEntries.bulkGet(entryIds);
+          const existingEntriesMap = new Map<string, GratitudeEntry>();
+          for (const e of existingEntries) {
+            if (e && e.id) existingEntriesMap.set(e.id, e);
+          }
+
+          for (const raw of tables.gratitudeEntries) {
+            if (!raw || !raw.id || raw.isDeleted || !raw.xpAwarded) continue;
+            const existingEntry = existingEntriesMap.get(raw.id);
+            if (!existingEntry || !existingEntry.xpAwarded) {
+              const gratXp = typeof raw.xpEarned === 'number' && !isNaN(raw.xpEarned) ? raw.xpEarned : 10;
+              incomingNewXpDelta += gratXp;
+              const skillId = raw.projectId ? projectSkillMap.get(raw.projectId) : undefined;
+              if (skillId) {
+                incomingSkillXpDelta[skillId] = (incomingSkillXpDelta[skillId] || 0) + gratXp;
                 incomingSkillCompletionsDelta[skillId] = (incomingSkillCompletionsDelta[skillId] || 0) + 1;
               }
             }
@@ -1290,7 +1362,16 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
           );
         }
 
-        // 7c. Merge Defusion entries and vault configuration
+        // 7c. Merge Gratitude entries, Defusion entries and vault configuration
+        if (tables.gratitudeEntries) {
+          stats.gratitudeEntries = await mergeTableRecords<GratitudeEntry>(
+            db.gratitudeEntries,
+            tables.gratitudeEntries,
+            sanitizeGratitudeEntry,
+            mergeOptions,
+            mergeGratitudeEntries
+          );
+        }
         if (tables.defusionEntries) {
           stats.defusionEntries = await mergeTableRecords<DefusionEntry>(
             db.defusionEntries,

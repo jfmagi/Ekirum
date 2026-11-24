@@ -12,6 +12,7 @@ import {
   HelpCircle,
   HardDrive,
   BookOpen,
+  Heart,
   Wind,
 } from 'lucide-react';
 import { ViewType } from '../../types';
@@ -210,6 +211,21 @@ export const Sidebar: React.FC = () => {
                   {libraryQueueCount}
                 </span>
               )}
+            </button>
+
+            {/* Gratitude Tab Link */}
+            <button
+              onClick={() => handleSelectView('gratitude')}
+              className={`w-full flex items-center justify-between px-2.5 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-[32px] rounded-mac text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none cursor-pointer ${
+                currentView === 'gratitude'
+                  ? 'bg-stone-200/80 text-charcoal font-semibold shadow-2xs'
+                  : 'text-stone-700 hover:bg-stone-200/50 hover:text-charcoal'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Heart size={15} className="text-stone-500" />
+                <span>Gratitude</span>
+              </div>
             </button>
 
             {/* Defusion Tab Link */}

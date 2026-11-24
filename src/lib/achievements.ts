@@ -1,4 +1,4 @@
-import { Task, Skill, Habit, Achievement, UserProfile, Project, LibraryItem, DefusionEntry } from '../types';
+import { Task, Skill, Habit, Achievement, UserProfile, Project, LibraryItem, DefusionEntry, GratitudeEntry } from '../types';
 import { INITIAL_ACHIEVEMENTS } from './seedData';
 import { formatLocalDate, isTaskOngoing, getTaskEndDateTime } from './dateParser';
 import { calculateSkillLevel } from './characterMath';
@@ -11,10 +11,10 @@ export interface AchievementEvaluationResult {
   projectSkillXpGains?: Record<string, number>;
 }
 
-const LIBRARY_PREFIXES = ['ach-book-', 'ach-movie-'];
+const TIERED_PROGRESS_PREFIXES = ['ach-book-', 'ach-movie-', 'ach-gratitude-'];
 
-function getLibraryPrefix(id: string): string | undefined {
-  return LIBRARY_PREFIXES.find((p) => id.startsWith(p));
+function getTieredPrefix(id: string): string | undefined {
+  return TIERED_PROGRESS_PREFIXES.find((p) => id.startsWith(p));
 }
 
 export function getProjectMilestoneXp(target: number): number {
@@ -165,11 +165,11 @@ export function isAchievementVisible(ach: Achievement, allAchievements: Achievem
     return true;
   }
 
-  // 7. Library milestones (books / movies): only the lowest unachieved tier per ladder is visible
-  const libraryPrefix = getLibraryPrefix(ach.id);
-  if (libraryPrefix) {
+  // 7. Tiered ladder milestones (Library books/movies, Gratitude days): only the lowest unachieved tier per ladder is visible
+  const tieredPrefix = getTieredPrefix(ach.id);
+  if (tieredPrefix) {
     for (const other of allAchievements) {
-      if (!other.unlockedAt && other.id.startsWith(libraryPrefix)) {
+      if (!other.unlockedAt && other.id.startsWith(tieredPrefix)) {
         if (other.maxProgress < ach.maxProgress) {
           return false;
         }
@@ -205,7 +205,7 @@ export function getVisibleAchievements(allAchievements: Achievement[]): Achievem
   let minLevelAch: Achievement | null = null;
   let minSkillAch: Achievement | null = null;
   let minMultiSkillAch: Achievement | null = null;
-  const minLibraryAch = new Map<string, Achievement>();
+  const minTieredAch = new Map<string, Achievement>();
   const minProjectAch = new Map<string, Achievement>();
 
   for (const a of allAchievements) {
@@ -241,11 +241,11 @@ export function getVisibleAchievements(allAchievements: Achievement[]): Achievem
         minMultiSkillAch = a;
       }
     } else {
-      const libPrefix = getLibraryPrefix(a.id);
-      if (libPrefix) {
-        const current = minLibraryAch.get(libPrefix);
+      const tieredPrefix = getTieredPrefix(a.id);
+      if (tieredPrefix) {
+        const current = minTieredAch.get(tieredPrefix);
         if (!current || a.maxProgress < current.maxProgress) {
-          minLibraryAch.set(libPrefix, a);
+          minTieredAch.set(tieredPrefix, a);
         }
       }
     }
@@ -257,7 +257,7 @@ export function getVisibleAchievements(allAchievements: Achievement[]): Achievem
   if (minLevelAch) nextActiveIds.add(minLevelAch.id);
   if (minSkillAch) nextActiveIds.add(minSkillAch.id);
   if (minMultiSkillAch) nextActiveIds.add(minMultiSkillAch.id);
-  minLibraryAch.forEach((a) => nextActiveIds.add(a.id));
+  minTieredAch.forEach((a) => nextActiveIds.add(a.id));
   minProjectAch.forEach((a) => nextActiveIds.add(a.id));
 
   return allAchievements.filter((a) => {
@@ -271,7 +271,7 @@ export function getVisibleAchievements(allAchievements: Achievement[]): Achievem
       !a.id.startsWith('ach-skill-') &&
       a.id !== 'ach-4' &&
       !a.id.startsWith('ach-multiskill-') &&
-      !getLibraryPrefix(a.id) &&
+      !getTieredPrefix(a.id) &&
       !parseProjectAchievementId(a.id)
     ) {
       return a.progress > 0;
@@ -289,7 +289,8 @@ export function evaluateAchievements(
   user?: UserProfile,
   projects: Project[] = [],
   libraryItems: LibraryItem[] = [],
-  defusionEntries: DefusionEntry[] = []
+  defusionEntries: DefusionEntry[] = [],
+  gratitudeEntries: GratitudeEntry[] = []
 ): AchievementEvaluationResult {
   const nowIso = new Date().toISOString();
   const todayStr = formatLocalDate();
@@ -318,6 +319,16 @@ export function evaluateAchievements(
       projectCompletionsMap.set(entry.projectId, (projectCompletionsMap.get(entry.projectId) || 0) + 1);
     }
   }
+  const uniqueGratitudeDates = new Set<string>();
+  for (const entry of gratitudeEntries) {
+    if (!entry.isDeleted) {
+      if (entry.date) uniqueGratitudeDates.add(entry.date);
+      if (entry.projectId) {
+        projectCompletionsMap.set(entry.projectId, (projectCompletionsMap.get(entry.projectId) || 0) + 1);
+      }
+    }
+  }
+  const gratitudeDaysCount = uniqueGratitudeDates.size;
 
   // Base list of achievements to evaluate, initialized with INITIAL_ACHIEVEMENTS
   const baseMap = new Map<string, Achievement>();
@@ -575,6 +586,14 @@ export function evaluateAchievements(
           const count = isBook ? booksFinishedCount : moviesFinishedCount;
           if (!isNaN(target) && target > 0) {
             targetProgress = Math.min(target, Math.max(ach.progress || 0, count));
+            if (targetProgress >= target) shouldUnlock = true;
+          }
+        }
+        // Gratitude milestones (unique days sealed)
+        else if (id.startsWith('ach-gratitude-')) {
+          const target = parseInt(id.replace('ach-gratitude-', ''), 10);
+          if (!isNaN(target) && target > 0) {
+            targetProgress = Math.min(target, Math.max(ach.progress || 0, gratitudeDaysCount));
             if (targetProgress >= target) shouldUnlock = true;
           }
         } else if ((ach.progress || 0) >= ach.maxProgress) {

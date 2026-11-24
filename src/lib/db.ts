@@ -8,6 +8,7 @@ import {
   Achievement,
   UserProfile,
   LibraryItem,
+  GratitudeEntry,
   DefusionEntry,
   DefusionVaultConfig,
 } from '../types';
@@ -43,6 +44,7 @@ export class EkirumDatabase extends Dexie {
   achievements!: EntityTable<Achievement, 'id'>;
   userProfile!: EntityTable<UserProfile, 'id'>;
   libraryItems!: EntityTable<LibraryItem, 'id'>;
+  gratitudeEntries!: EntityTable<GratitudeEntry, 'id'>;
   defusionEntries!: EntityTable<DefusionEntry, 'id'>;
   defusionVault!: EntityTable<DefusionVaultConfig, 'id'>;
   settings!: EntityTable<SettingRecord, 'key'>;
@@ -71,6 +73,11 @@ export class EkirumDatabase extends Dexie {
     this.version(3).stores({
       defusionEntries: 'id, projectId, burned, createdAt, updatedAt, isDeleted',
       defusionVault: 'id, updatedAt',
+    });
+
+    // Schema version 4: adds encrypted Gratitude journal entries sharing the vault key
+    this.version(4).stores({
+      gratitudeEntries: 'id, date, projectId, createdAt, updatedAt, isDeleted',
     });
   }
 }

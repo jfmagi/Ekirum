@@ -1,33 +1,28 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { useShallow } from 'zustand/react/shallow';
 import {
   Wind,
   Lock,
-  Unlock,
   Flame,
   Folder,
   Trash2,
-  KeyRound,
   ShieldCheck,
   Sparkles,
   Check,
-  Eye,
-  EyeOff,
-  Clock,
-  X,
 } from 'lucide-react';
 import {
   DEFUSION_PREFIXES,
   DecryptedDefusionPayload,
-  initializeDefusionVault,
-  configureVaultPassphrase,
-  unlockDefusionVault,
   decryptDefusionEntry,
 } from '../../lib/defusionCrypto';
 import { MAX_LENGTHS } from '../../lib/validation';
-
-const AUTO_LOCK_MS = 5 * 60 * 1000; // 5 minutes of inactivity
+import {
+  useVaultSession,
+  VaultControls,
+  VaultUnlockedBanner,
+  VaultPassphraseModal,
+} from '../common/VaultPassphraseModal';
 
 export const DefusionView: React.FC = () => {
   const {
@@ -67,64 +62,25 @@ export const DefusionView: React.FC = () => {
   const [filterMode, setFilterMode] = useState<'all' | 'sealed' | 'burned'>('all');
   const [projectFilter, setProjectFilter] = useState<string>('all');
 
-  // Vault unlock & in-memory decryption state (wiped on unmount or 5m inactivity)
-  const [unlockedPrivateKey, setUnlockedPrivateKey] = useState<CryptoKey | null>(null);
+  // Decrypted entries cache (wiped when vault locks)
   const [decryptedMap, setDecryptedMap] = useState<Record<string, DecryptedDefusionPayload>>({});
   const [isDecrypting, setIsDecrypting] = useState(false);
 
-  // Passphrase modal state
-  const [passphraseModalMode, setPassphraseModalMode] = useState<'unlock' | 'setup' | 'change' | null>(null);
-  const [currentPassInput, setCurrentPassInput] = useState('');
-  const [passInput, setPassInput] = useState('');
-  const [confirmPassInput, setConfirmPassInput] = useState('');
-  const [showPassphrase, setShowPassphrase] = useState(false);
-  const [passError, setPassError] = useState<string | null>(null);
-  const [isProcessingKey, setIsProcessingKey] = useState(false);
-
-  const lastActivityRef = useRef<number>(Date.now());
   const activeProjects = useMemo(() => projects.filter((p) => !p.isDeleted), [projects]);
   const projectMap = useMemo(() => new Map(activeProjects.map((p) => [p.id, p])), [activeProjects]);
 
-  const lockVault = useCallback(() => {
-    setUnlockedPrivateKey(null);
-    setDecryptedMap({});
-    setPassphraseModalMode(null);
-    setCurrentPassInput('');
-    setPassInput('');
-    setConfirmPassInput('');
-    setPassError(null);
-  }, []);
+  const {
+    unlockedPrivateKey,
+    isUnlocked,
+    lockVault,
+    openUnlockModal,
+    openChangePassphraseModal,
+    modalProps,
+  } = useVaultSession(defusionVault, saveDefusionVaultConfig, () => setDecryptedMap({}));
 
-  // Auto-lock after 5 minutes of inactivity while unlocked
+  // Ensure decrypted map is wiped on unmount
   useEffect(() => {
-    if (!unlockedPrivateKey) return;
-
-    lastActivityRef.current = Date.now();
-    const updateActivity = () => {
-      lastActivityRef.current = Date.now();
-    };
-
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'] as const;
-    events.forEach((ev) => window.addEventListener(ev, updateActivity, { passive: true }));
-
-    const interval = setInterval(() => {
-      if (Date.now() - lastActivityRef.current >= AUTO_LOCK_MS) {
-        lockVault();
-      }
-    }, 5000);
-
-    return () => {
-      events.forEach((ev) => window.removeEventListener(ev, updateActivity));
-      clearInterval(interval);
-    };
-  }, [unlockedPrivateKey, lockVault]);
-
-  // Ensure vault locks immediately when leaving the Defusion tab (component unmount)
-  useEffect(() => {
-    return () => {
-      setUnlockedPrivateKey(null);
-      setDecryptedMap({});
-    };
+    return () => setDecryptedMap({});
   }, []);
 
   // Decrypt sealed entries whenever vault is unlocked or new sealed entries arrive while unlocked
@@ -218,90 +174,6 @@ export const DefusionView: React.FC = () => {
     setBurningCardId(null);
   };
 
-  const handleOpenUnlockModal = () => {
-    setPassError(null);
-    setCurrentPassInput('');
-    setPassInput('');
-    setConfirmPassInput('');
-    setShowPassphrase(false);
-    if (!defusionVault || !defusionVault.passphraseConfigured) {
-      setPassphraseModalMode('setup');
-    } else {
-      setPassphraseModalMode('unlock');
-    }
-  };
-
-  const handleOpenChangePassphraseModal = () => {
-    setPassError(null);
-    setCurrentPassInput('');
-    setPassInput('');
-    setConfirmPassInput('');
-    setShowPassphrase(false);
-    setPassphraseModalMode('change');
-  };
-
-  const handlePassphraseSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isProcessingKey) return;
-    setPassError(null);
-
-    try {
-      setIsProcessingKey(true);
-      if (passphraseModalMode === 'setup') {
-        if (passInput.trim().length < 4) {
-          setPassError('Passphrase must be at least 4 characters.');
-          return;
-        }
-        if (passInput !== confirmPassInput) {
-          setPassError('Passphrases do not match.');
-          return;
-        }
-        let vaultToConfigure = defusionVault;
-        if (!vaultToConfigure) {
-          const freshVault = await initializeDefusionVault(passInput);
-          await saveDefusionVaultConfig(freshVault);
-          const key = await unlockDefusionVault(freshVault, passInput);
-          setUnlockedPrivateKey(key);
-        } else {
-          const { updatedVault, privateKey } = await configureVaultPassphrase(vaultToConfigure, passInput);
-          await saveDefusionVaultConfig(updatedVault);
-          setUnlockedPrivateKey(privateKey);
-        }
-        setPassphraseModalMode(null);
-      } else if (passphraseModalMode === 'unlock') {
-        if (!defusionVault) {
-          setPassError('Vault is not initialized yet.');
-          return;
-        }
-        const key = await unlockDefusionVault(defusionVault, passInput);
-        setUnlockedPrivateKey(key);
-        setPassphraseModalMode(null);
-      } else if (passphraseModalMode === 'change') {
-        if (!defusionVault) return;
-        if (passInput.trim().length < 4) {
-          setPassError('New passphrase must be at least 4 characters.');
-          return;
-        }
-        if (passInput !== confirmPassInput) {
-          setPassError('New passphrases do not match.');
-          return;
-        }
-        const { updatedVault, privateKey } = await configureVaultPassphrase(
-          defusionVault,
-          passInput,
-          currentPassInput
-        );
-        await saveDefusionVaultConfig(updatedVault);
-        setUnlockedPrivateKey(privateKey);
-        setPassphraseModalMode(null);
-      }
-    } catch (err) {
-      setPassError(err instanceof Error ? err.message : 'Failed to unlock vault.');
-    } finally {
-      setIsProcessingKey(false);
-    }
-  };
-
   const filteredEntries = useMemo(() => {
     return defusionEntries.filter((entry) => {
       if (entry.isDeleted) return false;
@@ -324,8 +196,6 @@ export const DefusionView: React.FC = () => {
     }
     return { total, sealed, burned };
   }, [defusionEntries]);
-
-  const isUnlocked = Boolean(unlockedPrivateKey);
 
   const formatTimestamp = (iso: string) => {
     try {
@@ -360,58 +230,16 @@ export const DefusionView: React.FC = () => {
           </div>
 
           {/* Vault Status Pill & Unlock / Lock Controls */}
-          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-            {isUnlocked ? (
-              <>
-                <button
-                  type="button"
-                  onClick={handleOpenChangePassphraseModal}
-                  className="px-2.5 py-1.5 rounded-mac text-[11px] font-sans font-medium text-stone-600 hover:text-charcoal bg-stone-100 hover:bg-stone-200/70 border border-stone-200/80 transition-colors flex items-center gap-1.5 cursor-pointer"
-                  title="Change vault passphrase"
-                >
-                  <KeyRound size={12} />
-                  <span>Passphrase</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={lockVault}
-                  className="px-3 py-1.5 rounded-mac text-xs font-sans font-semibold text-amber-900 bg-amber-100/90 hover:bg-amber-200/80 border border-amber-300/80 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                >
-                  <Lock size={13} />
-                  <span>Lock Vault</span>
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={handleOpenUnlockModal}
-                className="px-3 py-1.5 rounded-mac text-xs font-sans font-medium text-stone-700 hover:text-charcoal bg-white hover:bg-stone-100/90 border border-stone-200/90 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <Unlock size={13} className="text-stone-500" />
-                <span>Unlock Vault</span>
-              </button>
-            )}
-          </div>
+          <VaultControls
+            isUnlocked={isUnlocked}
+            onOpenUnlock={openUnlockModal}
+            onOpenChangePassphrase={openChangePassphraseModal}
+            onLock={lockVault}
+          />
         </header>
 
         {/* Auto-lock Notice Banner when Unlocked */}
-        {isUnlocked && (
-          <div className="bg-stone-100/90 border border-stone-200/90 rounded-mac px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs text-stone-700">
-            <div className="flex items-center gap-2">
-              <Clock size={13} className="text-stone-500 flex-shrink-0" />
-              <span>
-                Vault is unlocked for reading. Re-locks after 5 minutes of inactivity or when leaving this view.
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={lockVault}
-              className="text-xs font-medium text-stone-700 underline hover:text-charcoal flex-shrink-0 cursor-pointer"
-            >
-              Lock now
-            </button>
-          </div>
-        )}
+        {isUnlocked && <VaultUnlockedBanner onLock={lockVault} />}
 
         {/* 1-Step Thought Dump Composer */}
         <section
@@ -753,7 +581,7 @@ export const DefusionView: React.FC = () => {
                         </div>
                         <button
                           type="button"
-                          onClick={handleOpenUnlockModal}
+                          onClick={openUnlockModal}
                           className="text-xs font-sans text-stone-600 hover:text-charcoal underline cursor-pointer flex-shrink-0"
                         >
                           Unlock to read
@@ -768,149 +596,8 @@ export const DefusionView: React.FC = () => {
         </section>
       </div>
 
-      {/* Passphrase Setup / Unlock / Change Modal */}
-      {passphraseModalMode && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setPassphraseModalMode(null)}
-        >
-          <div
-            className="bg-[#FBFBF9] border border-stone-200 rounded-xl shadow-2xl max-w-md w-full p-5 space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-1.5 text-[10px] font-sans uppercase tracking-wider font-semibold text-stone-500">
-                  <KeyRound size={12} className="text-crimson" />
-                  <span>
-                    {passphraseModalMode === 'setup'
-                      ? 'First-Time Vault Key Setup'
-                      : passphraseModalMode === 'change'
-                        ? 'Update Vault Passphrase'
-                        : 'Encrypted Vault Access'}
-                  </span>
-                </div>
-                <h2 className="font-serif text-xl font-semibold text-charcoal mt-0.5">
-                  {passphraseModalMode === 'setup'
-                    ? 'Create Vault Passphrase'
-                    : passphraseModalMode === 'change'
-                      ? 'Change Vault Passphrase'
-                      : 'Unlock Defusion Vault'}
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPassphraseModalMode(null)}
-                className="p-1 text-stone-400 hover:text-charcoal rounded-mac cursor-pointer"
-                aria-label="Close modal"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <p className="text-xs text-stone-600 leading-relaxed">
-              {passphraseModalMode === 'setup'
-                ? 'Choose a personal passphrase to protect your private decryption key. You never need it to dump or seal thoughts—only when you choose to unlock and read your vault. Because your reflections are end-to-end encrypted, this passphrase cannot be recovered if forgotten.'
-                : passphraseModalMode === 'change'
-                  ? 'Update your vault passphrase. All existing sealed thoughts will seamlessly carry over to your new passphrase.'
-                  : 'Enter your passphrase to temporarily unlock and read your sealed thoughts. The vault automatically re-locks after 5 minutes of inactivity.'}
-            </p>
-
-            <form onSubmit={handlePassphraseSubmit} className="space-y-3">
-              {passphraseModalMode === 'change' && (
-                <div>
-                  <label className="block text-[11px] font-sans font-medium text-stone-700 mb-1">
-                    Current Passphrase
-                  </label>
-                  <input
-                    type={showPassphrase ? 'text' : 'password'}
-                    value={currentPassInput}
-                    onChange={(e) => setCurrentPassInput(e.target.value)}
-                    autoFocus
-                    required
-                    className="w-full px-3 py-2 rounded-mac text-xs bg-white border border-stone-300 focus:outline-none focus:ring-1 focus:ring-charcoal"
-                    placeholder="Enter current passphrase…"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-[11px] font-sans font-medium text-stone-700 mb-1">
-                  {passphraseModalMode === 'change' ? 'New Passphrase' : 'Vault Passphrase'}
-                </label>
-                <div className="relative flex items-center">
-                  <input
-                    type={showPassphrase ? 'text' : 'password'}
-                    value={passInput}
-                    onChange={(e) => setPassInput(e.target.value)}
-                    autoFocus={passphraseModalMode !== 'change'}
-                    required
-                    className="w-full pl-3 pr-9 py-2 rounded-mac text-xs bg-white border border-stone-300 focus:outline-none focus:ring-1 focus:ring-charcoal"
-                    placeholder={
-                      passphraseModalMode === 'unlock'
-                        ? 'Enter passphrase to unlock…'
-                        : 'At least 4 characters…'
-                    }
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassphrase((prev) => !prev)}
-                    className="absolute right-2.5 text-stone-500 hover:text-charcoal cursor-pointer p-1 rounded"
-                    aria-label={showPassphrase ? 'Hide passphrase' : 'Show passphrase'}
-                  >
-                    {showPassphrase ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-
-              {(passphraseModalMode === 'setup' || passphraseModalMode === 'change') && (
-                <div>
-                  <label className="block text-[11px] font-sans font-medium text-stone-700 mb-1">
-                    Confirm Passphrase
-                  </label>
-                  <input
-                    type={showPassphrase ? 'text' : 'password'}
-                    value={confirmPassInput}
-                    onChange={(e) => setConfirmPassInput(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 rounded-mac text-xs bg-white border border-stone-300 focus:outline-none focus:ring-1 focus:ring-charcoal"
-                    placeholder="Re-enter passphrase…"
-                  />
-                </div>
-              )}
-
-              {passError && (
-                <p className="text-xs text-crimson font-medium bg-crimson/5 border border-crimson/20 rounded-mac px-3 py-2">
-                  {passError}
-                </p>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setPassphraseModalMode(null)}
-                  className="px-3 py-1.5 rounded-mac text-xs font-sans text-stone-600 hover:bg-stone-200/60 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isProcessingKey}
-                  className="px-4 py-1.5 rounded-mac text-xs font-sans font-semibold bg-charcoal text-[#FBFBF9] hover:bg-stone-800 disabled:opacity-50 cursor-pointer"
-                >
-                  {isProcessingKey
-                    ? 'Unlocking…'
-                    : passphraseModalMode === 'setup'
-                      ? 'Set Passphrase & Unlock'
-                      : passphraseModalMode === 'change'
-                        ? 'Save Passphrase'
-                        : 'Unlock Vault'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Shared Passphrase Setup / Unlock / Change Modal */}
+      <VaultPassphraseModal {...modalProps} />
     </div>
   );
 };

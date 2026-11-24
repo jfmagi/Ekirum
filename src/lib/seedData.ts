@@ -332,6 +332,61 @@ export const LIBRARY_ACHIEVEMENTS: Achievement[] = [
   ...buildLibraryAchievements('movie', 'movie', MOVIE_ACHIEVEMENT_META),
 ];
 
+export const GRATITUDE_ACHIEVEMENTS: Achievement[] = [
+  {
+    id: 'ach-gratitude-1',
+    title: 'First Light',
+    description: 'Seal your first Gratitude journal entry.',
+    icon: 'Heart',
+    unlockedAt: undefined,
+    progress: 0,
+    maxProgress: 1,
+    xpReward: 25,
+    xpClaimed: false,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  },
+  {
+    id: 'ach-gratitude-7',
+    title: 'Week of Notice',
+    description: 'Seal 7 Gratitude journal days.',
+    icon: 'Sun',
+    unlockedAt: undefined,
+    progress: 0,
+    maxProgress: 7,
+    xpReward: 50,
+    xpClaimed: false,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  },
+  {
+    id: 'ach-gratitude-30',
+    title: 'Season of Thanks',
+    description: 'Seal 30 Gratitude journal days.',
+    icon: 'Sparkles',
+    unlockedAt: undefined,
+    progress: 0,
+    maxProgress: 30,
+    xpReward: 100,
+    xpClaimed: false,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  },
+  {
+    id: 'ach-gratitude-100',
+    title: 'Steadfast Witness',
+    description: 'Seal 100 Gratitude journal days.',
+    icon: 'Crown',
+    unlockedAt: undefined,
+    progress: 0,
+    maxProgress: 100,
+    xpReward: 250,
+    xpClaimed: false,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  },
+];
+
 export const RANK_ACHIEVEMENTS: Achievement[] = [
   {
     id: 'ach-rank-recruit',
@@ -498,6 +553,7 @@ export const INITIAL_ACHIEVEMENTS: Achievement[] = [
   ...SKILL_ACHIEVEMENTS,
   ...MULTISKILL_ACHIEVEMENTS,
   ...LIBRARY_ACHIEVEMENTS,
+  ...GRATITUDE_ACHIEVEMENTS,
   {
     id: 'ach-2',
     title: 'Consistent Cadence',
