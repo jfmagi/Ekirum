@@ -860,6 +860,7 @@ export function isTaskOngoing(
 /**
  * Determines whether a task is overdue.
  * Completed tasks and unscheduled tasks are never overdue.
+ * Daily recurring tasks are never overdue (they track lastCompletedDate instead).
  * Tasks that are actively in progress (ongoing) are never overdue.
  * For tasks with a duration, the effective end date is evaluated against todayStr.
  * Tasks scheduled or ending today (effectiveEndDate >= todayStr) are not overdue.
@@ -870,11 +871,15 @@ export function isTaskOverdue(
     dueTime?: string;
     duration?: number | string;
     completed?: boolean;
+    recurrence?: Recurrence;
   },
   todayStr: string = formatLocalDate(),
   now: Date = new Date()
 ): boolean {
   if (task.completed || !task.dueDate) return false;
+
+  // Daily tasks are never counted as overdue
+  if (task.recurrence === 'daily') return false;
 
   // An active ongoing task is never overdue
   if (isTaskOngoing(task, now)) return false;
@@ -883,6 +888,32 @@ export function isTaskOverdue(
   const effectiveEndDate = endInfo?.endDate || task.dueDate;
 
   return effectiveEndDate < todayStr;
+}
+
+/**
+ * Formats a YYYY-MM-DD last completed date for display (e.g. "Today", "Yesterday", "Nov 20", or "Dec 15, 2025").
+ */
+export function formatLastCompletedDisplay(
+  dateStr?: string,
+  now: Date = new Date()
+): string {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return '';
+
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const targetDate = new Date(y, m - 1, d);
+  targetDate.setHours(0, 0, 0, 0);
+
+  const nowDay = new Date(now);
+  nowDay.setHours(0, 0, 0, 0);
+
+  const diffDays = Math.round((targetDate.getTime() - nowDay.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return 'Today';
+  if (diffDays === -1) return 'Yesterday';
+
+  if (y === now.getFullYear()) {
+    return targetDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  return targetDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export function formatDueDateDisplay(

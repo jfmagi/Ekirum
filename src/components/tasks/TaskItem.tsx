@@ -3,6 +3,7 @@ import { Task, Priority } from '../../types';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import {
   formatDueDateDisplay,
+  formatLastCompletedDisplay,
   formatLocalDate,
   formatDuration,
   isTaskOverdue,
@@ -18,6 +19,7 @@ import {
   Trash2,
   Edit3,
   Repeat,
+  History,
 } from 'lucide-react';
 
 interface TaskItemProps {
@@ -53,6 +55,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({ task, onOpenDetai
 
   // Check if overdue or ongoing
   const todayStr = formatLocalDate();
+  const isDaily = task.recurrence === 'daily';
   const isOverdue = isTaskOverdue(task, todayStr);
   const isOngoing = isTaskOngoing(task);
 
@@ -165,20 +168,46 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({ task, onOpenDetai
                 </div>
               )}
 
-              {/* Due date and time range */}
-              {(task.dueDate || task.dueTime) && (
-                <div
-                  className={`flex items-center gap-1 font-mono ${
-                    isOverdue ? 'text-crimson font-medium' : 'text-stone-500'
-                  }`}
-                >
-                  {task.dueDate ? (
-                    <Calendar size={11} className={isOverdue ? 'text-crimson' : 'text-stone-400'} />
-                  ) : (
-                    <Clock size={11} className="text-stone-400" />
+              {/* Due date and time range (non-daily), or time + last completed date (daily) */}
+              {isDaily ? (
+                <>
+                  {task.dueTime && (
+                    <div className="flex items-center gap-1 font-mono text-stone-500">
+                      <Clock size={11} className="text-stone-400" />
+                      <span>{formatDueDateDisplay(undefined, task.dueTime, task.duration)}</span>
+                    </div>
                   )}
-                  <span>{formatDueDateDisplay(task.dueDate, task.dueTime, task.duration)}</span>
-                </div>
+                  <div
+                    className="flex items-center gap-1 font-mono text-stone-500"
+                    title={
+                      task.lastCompletedDate
+                        ? `Last completed: ${task.lastCompletedDate}`
+                        : 'Last completed: Never'
+                    }
+                  >
+                    <History size={11} className="text-stone-400" />
+                    <span>
+                      {task.lastCompletedDate
+                        ? `Last completed: ${formatLastCompletedDisplay(task.lastCompletedDate)}`
+                        : 'Last completed: Never'}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                (task.dueDate || task.dueTime) && (
+                  <div
+                    className={`flex items-center gap-1 font-mono ${
+                      isOverdue ? 'text-crimson font-medium' : 'text-stone-500'
+                    }`}
+                  >
+                    {task.dueDate ? (
+                      <Calendar size={11} className={isOverdue ? 'text-crimson' : 'text-stone-400'} />
+                    ) : (
+                      <Clock size={11} className="text-stone-400" />
+                    )}
+                    <span>{formatDueDateDisplay(task.dueDate, task.dueTime, task.duration)}</span>
+                  </div>
+                )
               )}
 
               {/* Duration badge */}

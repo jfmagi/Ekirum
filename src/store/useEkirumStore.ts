@@ -386,18 +386,23 @@ export function advanceRecurringTask(
     todayStr,
     anchorDay
   );
-  const occurrenceDate = task.dueDate || todayStr;
+  const occurrenceDate =
+    task.recurrence === 'daily' && (!task.dueDate || task.dueDate < todayStr)
+      ? todayStr
+      : (task.dueDate || todayStr);
   const archiveId = `task-archive-${task.id}-${occurrenceDate}`;
 
   const completedArchiveTask: Task = {
     ...task,
     id: archiveId,
+    dueDate: occurrenceDate,
     completed: true,
     completedAt: nowIso,
     uncompletedAt: undefined,
     xpAwarded: earnedXp,
     recurrence: 'none',
     recurrenceAnchorDay: undefined,
+    lastCompletedDate: undefined,
     updatedAt: nowIso,
   };
 
@@ -405,6 +410,7 @@ export function advanceRecurringTask(
     ...task,
     dueDate: nextDueDate,
     recurrenceAnchorDay: anchorDay,
+    lastCompletedDate: todayStr,
     completed: false,
     completedAt: undefined,
     uncompletedAt: undefined,
@@ -683,7 +689,42 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             .filter((e) => !e.isDeleted)
             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
           const activeDefusionVault = allDefusionVaults.find((v) => !v.isDeleted) || null;
-          const activeTasks = allTasks.filter((t) => !t.isDeleted);
+          let activeTasks = allTasks.filter((t) => !t.isDeleted);
+
+          // Backfill lastCompletedDate on active daily tasks from existing archive entries if missing
+          const backfilledDailyTasks: Task[] = [];
+          const hasDailyMissingLastCompleted = activeTasks.some(
+            (t) => !t.completed && t.recurrence === 'daily' && !t.lastCompletedDate
+          );
+          if (hasDailyMissingLastCompleted) {
+            const latestArchiveDateByTaskId = new Map<string, string>();
+            for (const t of activeTasks) {
+              if (!t.completed || !t.id.startsWith('task-archive-')) continue;
+              const match = t.id.match(/^task-archive-(.+)-(\d{4}-\d{2}-\d{2})$/);
+              if (!match) continue;
+              const parentId = match[1];
+              const completedDate = t.completedAt
+                ? formatLocalDate(new Date(t.completedAt))
+                : match[2];
+              const prev = latestArchiveDateByTaskId.get(parentId);
+              if (!prev || completedDate > prev) {
+                latestArchiveDateByTaskId.set(parentId, completedDate);
+              }
+            }
+            if (latestArchiveDateByTaskId.size > 0) {
+              activeTasks = activeTasks.map((t) => {
+                if (!t.completed && t.recurrence === 'daily' && !t.lastCompletedDate) {
+                  const derived = latestArchiveDateByTaskId.get(t.id);
+                  if (derived) {
+                    const updated = { ...t, lastCompletedDate: derived };
+                    backfilledDailyTasks.push(updated);
+                    return updated;
+                  }
+                }
+                return t;
+              });
+            }
+          }
           const activeProjects = allProjects.filter((p) => !p.isDeleted);
           const activeSkills = allSkills.filter((s) => !s.isDeleted);
           const activeHabits = allHabits.filter((h) => !h.isDeleted);
@@ -747,6 +788,10 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
 
           const { updatedSkills } = applySkillXpGains(activeSkills, projectSkillXpGains);
           const dbWritePromises: Promise<unknown>[] = [];
+
+          if (backfilledDailyTasks.length > 0) {
+            dbWritePromises.push(db.tasks.bulkPut(backfilledDailyTasks).catch(saveCatch('backfilling daily lastCompletedDate')));
+          }
 
           if (projectSkillXpGains && Object.keys(projectSkillXpGains).length > 0) {
             dbWritePromises.push(db.skills.bulkPut(updatedSkills).catch(saveCatch('updating skills')));

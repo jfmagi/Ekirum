@@ -87,6 +87,7 @@ export const TaskTimelineView: React.FC = () => {
       overdue.push(t);
     } else if (
       t.dueDate === todayStr ||
+      (t.recurrence === 'daily' && t.dueDate <= todayStr) ||
       isTaskOngoing(t, now) ||
       getTaskEndDateTime(t.dueDate, t.dueTime, t.duration)?.endDate === todayStr
     ) {

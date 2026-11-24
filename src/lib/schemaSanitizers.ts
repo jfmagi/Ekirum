@@ -44,6 +44,10 @@ export function sanitizeTask(raw: any): Task | null {
       return typeof num === 'number' && !isNaN(num) && num > 0 ? Math.min(Math.floor(num), 1440) : undefined;
     })(),
     recurrence: ['none', 'daily', 'weekdays', 'weekly', 'monthly'].includes(raw.recurrence) ? raw.recurrence : 'none',
+    lastCompletedDate:
+      typeof raw.lastCompletedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.lastCompletedDate)
+        ? raw.lastCompletedDate
+        : undefined,
     completed: Boolean(raw.completed),
     completedAt: typeof raw.completedAt === 'string' ? raw.completedAt : undefined,
     uncompletedAt: typeof raw.uncompletedAt === 'string' ? raw.uncompletedAt : undefined,

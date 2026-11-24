@@ -6,6 +6,7 @@ import {
   isTaskOngoing,
   isTaskOverdue,
   formatDueDateDisplay,
+  formatLastCompletedDisplay,
 } from '../src/lib/dateParser';
 import { MAX_LENGTHS, clampString, clampOptionalString } from '../src/lib/validation';
 import {
@@ -18,7 +19,7 @@ import {
 } from '../src/lib/schemaSanitizers';
 import { advanceRecurringTask, useEkirumStore } from '../src/store/useEkirumStore';
 import { syncDeviceFiles, getBackupStatus, writeDeviceFile, atomicWriteFile, performDailyBackup } from '../src/lib/backupService';
-import { compactTombstones, importAndMerge, exportAll, MAX_RECORDS_PER_TABLE } from '../src/lib/syncEngine';
+import { compactTombstones, importAndMerge, exportAll, mergeTasks, MAX_RECORDS_PER_TABLE } from '../src/lib/syncEngine';
 import { INITIAL_USER } from '../src/lib/seedData';
 import { db } from '../src/lib/db';
 import type {
@@ -864,6 +865,51 @@ assert.strictEqual(
 assert.strictEqual(isTaskOverdue({ ...longTask, completed: true }, '2026-10-26', nextDayTime), false);
 
 console.log('Test 19: Long duration task in-progress, end date calculation & non-overdue display: PASSED');
+
+// Test 20: Daily tasks are never overdue and track lastCompletedDate
+const pastDailyTask: Task = {
+  id: 'daily-task-1',
+  projectId: 'proj-1',
+  title: 'Morning Pages',
+  priority: 'p3',
+  labels: [],
+  completed: false,
+  recurrence: 'daily',
+  dueDate: '2026-11-20',
+  subtasks: [],
+  createdAt: '2026-11-18T08:00:00.000Z',
+  updatedAt: '2026-11-20T08:00:00.000Z',
+};
+
+const refToday = new Date('2026-11-24T10:00:00');
+assert.strictEqual(isTaskOverdue(pastDailyTask, '2026-11-24', refToday), false, 'Daily task must never be marked overdue');
+assert.strictEqual(isTaskOverdue({ ...pastDailyTask, recurrence: 'weekly' }, '2026-11-24', refToday), true, 'Non-daily weekly task with past dueDate is still overdue');
+
+const dailyAdv = advanceRecurringTask(pastDailyTask, '2026-11-24', '2026-11-24T10:00:00.000Z', 16);
+assert.strictEqual(dailyAdv.activeRecurringTask.lastCompletedDate, '2026-11-24', 'advanceRecurringTask sets lastCompletedDate to todayStr');
+assert.strictEqual(dailyAdv.activeRecurringTask.dueDate, '2026-11-25', 'advanceRecurringTask advances dueDate to tomorrow');
+assert.strictEqual(dailyAdv.completedArchiveTask.id, 'task-archive-daily-task-1-2026-11-24', 'Archive ID uses completion date for past daily task');
+assert.strictEqual(dailyAdv.completedArchiveTask.lastCompletedDate, undefined);
+
+assert.strictEqual(formatLastCompletedDisplay('2026-11-24', refToday), 'Today');
+assert.strictEqual(formatLastCompletedDisplay('2026-11-23', refToday), 'Yesterday');
+assert.strictEqual(formatLastCompletedDisplay('2026-11-20', refToday), 'Nov 20');
+assert.strictEqual(formatLastCompletedDisplay('2025-12-15', refToday), 'Dec 15, 2025');
+assert.strictEqual(formatLastCompletedDisplay(undefined, refToday), '');
+
+const sanitizedDaily = sanitizeTask({ ...dailyAdv.activeRecurringTask, lastCompletedDate: '2026-11-24' });
+assert.strictEqual(sanitizedDaily?.lastCompletedDate, '2026-11-24');
+const badDateSanitized = sanitizeTask({ ...dailyAdv.activeRecurringTask, lastCompletedDate: 'not-a-date' });
+assert.strictEqual(badDateSanitized?.lastCompletedDate, undefined);
+
+const mergedDaily = mergeTasks(
+  { ...dailyAdv.activeRecurringTask, lastCompletedDate: '2026-11-24', updatedAt: '2026-11-24T10:00:00.000Z' },
+  { ...pastDailyTask, lastCompletedDate: '2026-11-22', updatedAt: '2026-11-25T10:00:00.000Z' },
+  true
+);
+assert.strictEqual(mergedDaily.lastCompletedDate, '2026-11-24', 'mergeTasks must preserve the latest lastCompletedDate monotonically');
+
+console.log('Test 20: Daily task non-overdue invariant, lastCompletedDate tracking, formatting & sync merge: PASSED');
 
 console.log('\n🎉 ALL VALIDATION & DATA INTEGRITY TESTS PASSED!');
 

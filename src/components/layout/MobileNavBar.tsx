@@ -45,6 +45,7 @@ export const MobileNavBar: React.FC = () => {
         !t.isDeleted &&
         !t.completed &&
         (t.dueDate === todayStr ||
+          (t.recurrence === 'daily' && (!t.dueDate || t.dueDate <= todayStr)) ||
           isTaskOngoing(t) ||
           getTaskEndDateTime(t.dueDate, t.dueTime, t.duration)?.endDate === todayStr ||
           isTaskOverdue(t, todayStr))

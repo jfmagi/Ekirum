@@ -619,6 +619,17 @@ export function mergeTasks(
     dueDate = incoming.dueDate;
   }
 
+  // Merge lastCompletedDate monotonically so recurring completion history is never lost
+  let lastCompletedDate = base.lastCompletedDate;
+  if (existing.lastCompletedDate && incoming.lastCompletedDate) {
+    lastCompletedDate =
+      existing.lastCompletedDate >= incoming.lastCompletedDate
+        ? existing.lastCompletedDate
+        : incoming.lastCompletedDate;
+  } else {
+    lastCompletedDate = existing.lastCompletedDate || incoming.lastCompletedDate;
+  }
+
   const result: Task = {
     ...base,
     completed,
@@ -626,6 +637,7 @@ export function mergeTasks(
     ...(uncompletedAt !== undefined ? { uncompletedAt } : {}),
     ...(xpAwarded !== undefined ? { xpAwarded } : {}),
     ...(dueDate !== undefined ? { dueDate } : {}),
+    ...(lastCompletedDate !== undefined ? { lastCompletedDate } : {}),
     subtasks,
     updatedAt: effectiveIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
@@ -640,6 +652,9 @@ export function mergeTasks(
   }
   if (dueDate === undefined) {
     delete result.dueDate;
+  }
+  if (lastCompletedDate === undefined) {
+    delete result.lastCompletedDate;
   }
 
   if (!isSubstantiveRecordEqual(result, existing)) {

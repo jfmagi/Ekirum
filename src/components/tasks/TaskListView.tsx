@@ -126,6 +126,7 @@ export const TaskListView: React.FC = () => {
         return (
           !task.completed &&
           (task.dueDate === todayStr ||
+            (task.recurrence === 'daily' && (!task.dueDate || task.dueDate <= todayStr)) ||
             isTaskOngoing(task) ||
             getTaskEndDateTime(task.dueDate, task.dueTime, task.duration)?.endDate === todayStr ||
             isTaskOverdue(task, todayStr) ||

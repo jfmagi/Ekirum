@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { Task, Priority, Recurrence } from '../../types';
 import { MAX_LENGTHS } from '../../lib/validation';
-import { formatDuration, formatTimeRange } from '../../lib/dateParser';
+import { formatDuration, formatLastCompletedDisplay, formatTimeRange } from '../../lib/dateParser';
 import {
   X,
   Calendar,
@@ -15,6 +15,7 @@ import {
   Trash2,
   Repeat,
   Tag,
+  History,
 } from 'lucide-react';
 
 import { useShallow } from 'zustand/react/shallow';
@@ -207,19 +208,35 @@ export const TaskDetailModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Due Date, Time & Duration */}
+          {/* Due Date / Last Completed, Time & Duration */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-            <div className="space-y-1">
-              <label className="text-[11px] font-medium text-stone-600 uppercase tracking-wider flex items-center gap-1">
-                <Calendar size={11} /> Due Date
-              </label>
-              <input
-                type="date"
-                value={task.dueDate || ''}
-                onChange={(e) => updateTask(task.id, { dueDate: e.target.value || undefined })}
-                className="w-full text-xs bg-white border border-stone-200 rounded-mac px-2.5 py-1.5 text-stone-700 focus:outline-none focus:border-stone-400"
-              />
-            </div>
+            {task.recurrence === 'daily' ? (
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-stone-600 uppercase tracking-wider flex items-center gap-1">
+                  <History size={11} /> Last Completed
+                </label>
+                <div
+                  className="w-full text-xs bg-stone-100/70 border border-stone-200/80 rounded-mac px-2.5 py-1.5 text-stone-600 font-mono"
+                  title={task.lastCompletedDate || 'Never'}
+                >
+                  {task.lastCompletedDate
+                    ? formatLastCompletedDisplay(task.lastCompletedDate)
+                    : 'Never'}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-stone-600 uppercase tracking-wider flex items-center gap-1">
+                  <Calendar size={11} /> Due Date
+                </label>
+                <input
+                  type="date"
+                  value={task.dueDate || ''}
+                  onChange={(e) => updateTask(task.id, { dueDate: e.target.value || undefined })}
+                  className="w-full text-xs bg-white border border-stone-200 rounded-mac px-2.5 py-1.5 text-stone-700 focus:outline-none focus:border-stone-400"
+                />
+              </div>
+            )}
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-stone-600 uppercase tracking-wider flex items-center gap-1">
                 <Clock size={11} /> Due Time

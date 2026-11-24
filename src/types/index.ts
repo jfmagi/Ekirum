@@ -25,6 +25,7 @@ export interface Task extends BaseEntity {
   duration?: number; // Estimated duration in minutes
   recurrence?: Recurrence;
   recurrenceAnchorDay?: number; // 1-31 anchor day for monthly recurrence to avoid end-of-month drift
+  lastCompletedDate?: string; // YYYY-MM-DD of last completion (used for daily tasks)
   priority: Priority;
   labels: string[];
   completed: boolean;

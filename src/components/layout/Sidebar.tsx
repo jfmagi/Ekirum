@@ -65,6 +65,7 @@ export const Sidebar: React.FC = () => {
 
       const isToday =
         t.dueDate === todayStr ||
+        (t.recurrence === 'daily' && (!t.dueDate || t.dueDate <= todayStr)) ||
         isTaskOngoing(t) ||
         getTaskEndDateTime(t.dueDate, t.dueTime, t.duration)?.endDate === todayStr;
 
