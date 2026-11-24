@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useEkirumStore } from '../../store/useEkirumStore';
 import { db, regenerateDeviceId, getDevicePlatformLabel } from '../../lib/db';
-import { removeOwnDeviceFilesFromFolder } from '../../lib/backupService';
+import { removeOwnDeviceFilesFromFolder, isFileSystemAccessSupported } from '../../lib/backupService';
 import { formatLocalDate } from '../../lib/dateParser';
 import {
   Download,
@@ -320,8 +320,8 @@ export const BackupModal: React.FC = () => {
       }
       setTimeout(() => setActionMessage(null), 3500);
     } else {
-      setActionMessage('Sync incomplete. Verify folder permissions.');
-      setTimeout(() => setActionMessage(null), 3500);
+      setActionMessage(res.error || 'Sync incomplete. Verify folder permissions.');
+      setTimeout(() => setActionMessage(null), 4000);
     }
   };
 
@@ -373,8 +373,9 @@ export const BackupModal: React.FC = () => {
     }
   };
 
-  const hasFs = backupStatus?.hasFileSystemSupport ?? false;
+  const hasFs = backupStatus?.hasFileSystemSupport ?? isFileSystemAccessSupported();
   const permission = backupStatus?.permission ?? 'not-configured';
+  const isCheckingStatus = backupStatus === null && hasFs;
 
   return (
     <div
@@ -483,7 +484,11 @@ export const BackupModal: React.FC = () => {
                   <div className="space-y-0.5">
                     <div className="text-xs font-medium text-charcoal flex items-center gap-2">
                       <FolderOpen size={13} className="text-stone-500" />
-                      <span>{backupStatus?.folderName || 'No sync folder selected'}</span>
+                      <span>
+                        {isCheckingStatus
+                          ? 'Checking sync folder…'
+                          : backupStatus?.folderName || 'No sync folder selected'}
+                      </span>
                       {permission === 'granted' && (
                         <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-1.5 py-0.2 rounded-full font-mono flex items-center gap-1">
                           <CheckCircle2 size={10} /> Connected
@@ -492,6 +497,11 @@ export const BackupModal: React.FC = () => {
                       {permission === 'prompt' && (
                         <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200/70 px-1.5 py-0.2 rounded-full font-mono">
                           Reconnection needed
+                        </span>
+                      )}
+                      {permission === 'denied' && (
+                        <span className="text-[10px] text-crimson bg-crimson/10 border border-crimson/25 px-1.5 py-0.2 rounded-full font-mono">
+                          Access denied
                         </span>
                       )}
                     </div>
@@ -516,7 +526,7 @@ export const BackupModal: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {permission === 'prompt' ? (
+                    {permission === 'prompt' || permission === 'denied' ? (
                       <button
                         onClick={handleReconnect}
                         disabled={isSyncing}
@@ -546,6 +556,14 @@ export const BackupModal: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                {/* Diagnostic Warning (e.g. hung cloud drive handle or busy storage) */}
+                {backupStatus?.statusWarning && (
+                  <div className="p-2.5 rounded-mac bg-amber-50/90 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                    <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <span>{backupStatus.statusWarning}</span>
+                  </div>
+                )}
 
                 {/* Overdue Warning */}
                 {backupStatus?.isOverdue && (

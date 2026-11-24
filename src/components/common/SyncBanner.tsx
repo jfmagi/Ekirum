@@ -25,7 +25,7 @@ export const SyncBanner: React.FC = () => {
 
   if (dismissed || !backupStatus) return null;
 
-  const isPermissionPrompt = backupStatus.permission === 'prompt';
+  const isPermissionPrompt = backupStatus.permission === 'prompt' || backupStatus.permission === 'denied';
   const isOverdue = backupStatus.isOverdue;
 
   if (!isPermissionPrompt && !isOverdue) return null;

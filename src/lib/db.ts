@@ -79,6 +79,14 @@ export class EkirumDatabase extends Dexie {
     this.version(4).stores({
       gratitudeEntries: 'id, date, projectId, createdAt, updatedAt, isDeleted',
     });
+
+    // Release the connection gracefully when a newer tab/PWA instance upgrades the schema
+    this.on('versionchange', () => {
+      this.close();
+    });
+    this.on('blocked', () => {
+      console.warn('Ekirum IndexedDB upgrade is blocked by another open tab or window.');
+    });
   }
 }
 

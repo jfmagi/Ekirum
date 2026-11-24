@@ -5,6 +5,34 @@ import { formatLocalDate } from './dateParser';
 
 const HANDLE_KEY = 'backupDirectoryHandle';
 const CONFIG_KEY = 'backupConfig';
+const STATUS_CHECK_TIMEOUT_MS = 4000;
+const SYNC_IO_TIMEOUT_MS = 15000;
+
+class SyncTimeoutError extends Error {
+  constructor(label: string, ms: number) {
+    super(`${label} timed out after ${Math.round(ms / 1000)}s`);
+    this.name = 'SyncTimeoutError';
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+  return new Promise<T>((resolve, reject) => {
+    timerId = setTimeout(() => {
+      reject(new SyncTimeoutError(label, ms));
+    }, ms);
+    promise.then(
+      (value) => {
+        if (timerId !== null) clearTimeout(timerId);
+        resolve(value);
+      },
+      (err) => {
+        if (timerId !== null) clearTimeout(timerId);
+        reject(err);
+      }
+    );
+  });
+}
 
 export interface BackupStatus {
   hasFileSystemSupport: boolean;
@@ -18,6 +46,7 @@ export interface BackupStatus {
   foreignDeviceCount?: number;
   dailyBackupCount?: number;
   lastSyncReport?: SyncReport | null;
+  statusWarning?: string | null;
 }
 
 /**
@@ -131,52 +160,81 @@ export async function verifyHandlePermission(
   requestIfNeeded = false
 ): Promise<BackupFolderPermission> {
   if (!handle) return 'denied';
+  const isAndroid = getDevicePlatformLabel() === 'android';
 
   // When called from a direct user gesture (e.g. clicking "Reconnect" or "Sync Now"),
-  // call requestPermission IMMEDIATELY before any other awaits so Android Chrome does not
+  // call requestPermission IMMEDIATELY before any other awaits so browsers do not
   // consume or expire the transient user activation!
   if (requestIfNeeded && typeof (handle as any).requestPermission === 'function') {
     try {
       const req = await (handle as any).requestPermission({ mode: 'readwrite' });
       if (req === 'granted') return 'granted';
+      if (req === 'denied' && !isAndroid) return 'denied';
     } catch (reqErr) {
       console.warn('requestPermission(readwrite) error:', reqErr);
     }
-    try {
-      const reqRead = await (handle as any).requestPermission({ mode: 'read' });
-      if (reqRead === 'granted') return 'granted';
-    } catch {
-      // ignore
+    if (isAndroid) {
+      try {
+        const reqRead = await (handle as any).requestPermission({ mode: 'read' });
+        if (reqRead === 'granted') return 'granted';
+      } catch {
+        // ignore
+      }
     }
   }
 
   // 1. Try standard queryPermission if supported
   if (typeof (handle as any).queryPermission === 'function') {
     try {
-      const query = await (handle as any).queryPermission({ mode: 'readwrite' });
+      const query = await withTimeout(
+        (handle as any).queryPermission({ mode: 'readwrite' }),
+        STATUS_CHECK_TIMEOUT_MS,
+        'Folder permission check'
+      );
       if (query === 'granted') return 'granted';
+      if (query === 'denied') return 'denied';
 
-      const queryRead = await (handle as any).queryPermission({ mode: 'read' });
+      // On desktop Chromium/Edge, queryPermission({ mode: 'readwrite' }) === 'prompt' is authoritative.
+      // Do NOT treat read-only permission as granted or probe handle.values() on a desktop 'prompt'
+      // handle (which can hang indefinitely on macOS cloud drive FileProvider mounts).
+      if (!isAndroid) {
+        return 'prompt';
+      }
+
+      const queryRead = await withTimeout(
+        (handle as any).queryPermission({ mode: 'read' }),
+        STATUS_CHECK_TIMEOUT_MS,
+        'Folder read permission check'
+      );
       if (queryRead === 'granted') return 'granted';
-
-      if (query === 'denied' && queryRead === 'denied') return 'denied';
 
       // On Android SAF, queryPermission can return 'prompt' even when the handle is already
       // permitted by the OS SAF document tree grant. Probe direct access before giving up.
-      const isActuallyAccessible = await probeHandleAccess(handle);
+      const isActuallyAccessible = await withTimeout(
+        probeHandleAccess(handle),
+        STATUS_CHECK_TIMEOUT_MS,
+        'Folder access probe'
+      );
       if (isActuallyAccessible) {
         return 'granted';
       }
 
       return 'prompt';
     } catch (err: any) {
+      if (err instanceof SyncTimeoutError) {
+        throw err;
+      }
       console.warn('queryPermission threw error, falling back to direct probe:', err);
     }
   }
 
-  // 2. Fallback for browsers / Android environments where queryPermission is absent or threw:
-  // Probe whether the directory can be read directly
-  const canAccess = await probeHandleAccess(handle);
+  // 2. Fallback for browsers / environments where queryPermission is absent or threw:
+  // Probe whether the directory can be read directly (bounded by timeout).
+  const canAccess = await withTimeout(
+    probeHandleAccess(handle),
+    STATUS_CHECK_TIMEOUT_MS,
+    'Folder access probe'
+  );
   if (canAccess) {
     return 'granted';
   }
@@ -189,15 +247,58 @@ export async function verifyHandlePermission(
  */
 export async function getBackupStatus(): Promise<BackupStatus> {
   const hasSupport = isFileSystemAccessSupported();
-  const deviceId = await getOrCreateDeviceId();
   const devicePlatform = getDevicePlatformLabel();
-  const lastBackup = await db.settings.get('lastBackupAt');
-  const lastSync = await db.settings.get('lastSyncAt');
-  const config = await db.settings.get(CONFIG_KEY);
 
-  const lastBackupAt = (lastBackup?.value as string) || null;
-  const lastSyncAt = (lastSync?.value as string) || null;
-  const folderName = (config?.value?.folderName as string) || null;
+  let deviceId = '';
+  let lastBackupAt: string | null = null;
+  let lastSyncAt: string | null = null;
+  let folderName: string | null = null;
+  let lastSyncReport: SyncReport | null = null;
+  let handle: FileSystemDirectoryHandle | null = null;
+  let statusWarning: string | null = null;
+
+  try {
+    const metadata = await withTimeout(
+      (async () => {
+        const devId = await getOrCreateDeviceId();
+        const [lastBackup, lastSync, config, lastReportRecord] = await Promise.all([
+          db.settings.get('lastBackupAt'),
+          db.settings.get('lastSyncAt'),
+          db.settings.get(CONFIG_KEY),
+          db.settings.get('lastSyncReport'),
+        ]);
+        const savedHandle = hasSupport ? await getSavedDirectoryHandle() : null;
+        return { devId, lastBackup, lastSync, config, lastReportRecord, savedHandle };
+      })(),
+      STATUS_CHECK_TIMEOUT_MS + 1000,
+      'Local database read'
+    );
+
+    deviceId = metadata.devId;
+    lastBackupAt = (metadata.lastBackup?.value as string) || null;
+    lastSyncAt = (metadata.lastSync?.value as string) || null;
+    folderName = (metadata.config?.value?.folderName as string) || null;
+    lastSyncReport = (metadata.lastReportRecord?.value as SyncReport) || null;
+    handle = metadata.savedHandle;
+  } catch (err: any) {
+    console.warn('getBackupStatus database check failed:', err);
+    const fallbackDeviceId =
+      typeof localStorage !== 'undefined' ? localStorage.getItem('ekirum-device-id') || '' : '';
+    return {
+      hasFileSystemSupport: hasSupport,
+      folderName: null,
+      lastBackupAt: null,
+      lastSyncAt: null,
+      permission: hasSupport ? 'not-configured' : 'unsupported',
+      isOverdue: false,
+      deviceId: fallbackDeviceId,
+      devicePlatform,
+      statusWarning:
+        err instanceof SyncTimeoutError
+          ? 'Local storage is busy or blocked by another Ekirum tab/window. Quit and reopen your browser if this persists.'
+          : `Could not read local sync settings (${err?.message || 'storage error'}).`,
+    };
+  }
 
   if (!hasSupport) {
     return {
@@ -209,10 +310,10 @@ export async function getBackupStatus(): Promise<BackupStatus> {
       isOverdue: Boolean(lastBackupAt && Date.now() - new Date(lastBackupAt).getTime() > 48 * 3600 * 1000),
       deviceId,
       devicePlatform,
+      lastSyncReport,
     };
   }
 
-  const handle = await getSavedDirectoryHandle();
   if (!handle) {
     return {
       hasFileSystemSupport: true,
@@ -223,10 +324,24 @@ export async function getBackupStatus(): Promise<BackupStatus> {
       isOverdue: false,
       deviceId,
       devicePlatform,
+      lastSyncReport,
     };
   }
 
-  const permission = await verifyHandlePermission(handle, false);
+  let permission: BackupFolderPermission = 'prompt';
+  try {
+    permission = await withTimeout(
+      verifyHandlePermission(handle, false),
+      STATUS_CHECK_TIMEOUT_MS + 500,
+      'Folder permission check'
+    );
+  } catch (err: any) {
+    console.warn('getBackupStatus permission check timed out/failed:', err);
+    permission = 'prompt';
+    statusWarning =
+      'Saved sync folder did not respond in time. Ensure your cloud drive is running, then click Reconnect or Change Folder.';
+  }
+
   const isOverdue = Boolean(
     lastBackupAt && (Date.now() - new Date(lastBackupAt).getTime()) > 48 * 3600 * 1000
   );
@@ -235,7 +350,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
   let dailyBackupCount = 0;
   if (permission === 'granted') {
     try {
-      const entries = await getDirectoryEntries(handle);
+      const entries = await getDirectoryEntries(handle, STATUS_CHECK_TIMEOUT_MS);
       const foreignDeviceIds = new Set<string>();
       for (const entry of entries) {
         if (entry.kind === 'file') {
@@ -254,13 +369,13 @@ export async function getBackupStatus(): Promise<BackupStatus> {
         }
       }
       foreignDeviceCount = foreignDeviceIds.size;
-    } catch {
-      // ignore
+    } catch (err: any) {
+      if (err instanceof SyncTimeoutError) {
+        statusWarning =
+          'Connected sync folder took too long to respond (cloud drive may be paused or offline).';
+      }
     }
   }
-
-  const lastReportRecord = await db.settings.get('lastSyncReport');
-  const lastSyncReport = (lastReportRecord?.value as SyncReport) || null;
 
   return {
     hasFileSystemSupport: true,
@@ -274,6 +389,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     foreignDeviceCount,
     dailyBackupCount,
     lastSyncReport,
+    statusWarning,
   };
 }
 
@@ -560,7 +676,7 @@ export async function removeOwnDeviceFilesFromFolder(): Promise<void> {
  * Throws when iteration methods fail with permission/system errors so callers do not
  * mistakenly treat failure as an empty folder.
  */
-async function getDirectoryEntries(handle: FileSystemDirectoryHandle): Promise<FileSystemHandle[]> {
+async function getDirectoryEntriesInner(handle: FileSystemDirectoryHandle): Promise<FileSystemHandle[]> {
   const entries: FileSystemHandle[] = [];
   let attemptedMethod = false;
   let lastError: unknown = null;
@@ -618,6 +734,13 @@ async function getDirectoryEntries(handle: FileSystemDirectoryHandle): Promise<F
   }
 
   return entries;
+}
+
+async function getDirectoryEntries(
+  handle: FileSystemDirectoryHandle,
+  timeoutMs = SYNC_IO_TIMEOUT_MS
+): Promise<FileSystemHandle[]> {
+  return withTimeout(getDirectoryEntriesInner(handle), timeoutMs, 'Folder entry listing');
 }
 
 /**
@@ -1266,11 +1389,18 @@ async function executeBackupAndSyncPass(force: boolean, forceFullResync = false)
       totalChanges,
       filesProcessed,
       deviceWriteOk,
-      error: syncRes.mergeResult?.error,
+      error:
+        syncRes.mergeResult?.error ||
+        (!deviceWriteOk ? 'Could not write device sync file. Verify write permissions for the sync folder.' : undefined),
     };
   } catch (err) {
     console.warn('maybeBackupAndSync error:', err);
-    return { success: false, totalChanges: 0, filesProcessed: 0 };
+    return {
+      success: false,
+      totalChanges: 0,
+      filesProcessed: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
