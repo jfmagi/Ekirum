@@ -7,7 +7,6 @@ import {
   Folder,
   Trash2,
   ShieldCheck,
-  Sparkles,
   Check,
   Flame,
   Edit3,
@@ -17,7 +16,6 @@ import {
 import {
   DecryptedGratitudePayload,
   decryptGratitudeEntry,
-  GRATITUDE_XP,
 } from '../../lib/defusionCrypto';
 import { MAX_LENGTHS } from '../../lib/validation';
 import { formatLocalDate, formatLastCompletedDisplay } from '../../lib/dateParser';
@@ -339,7 +337,7 @@ export const GratitudeView: React.FC = () => {
           },
         }));
       }
-      setJustSavedFeedback(res.xpEarned > 0 ? `Sealed · +${res.xpEarned} XP` : 'Sealed');
+      setJustSavedFeedback('Sealed');
       setTimeout(() => setJustSavedFeedback(null), 2600);
     } finally {
       setIsSaving(false);
@@ -397,12 +395,6 @@ export const GratitudeView: React.FC = () => {
                   style={{ backgroundColor: project.color || '#8B1528' }}
                 />
                 <span>{project.name}</span>
-              </span>
-            )}
-            {isTodayCard && entry.xpEarned !== undefined && entry.xpEarned > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-amber-800 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-full">
-                <Sparkles size={10} className="text-gold" />
-                +{entry.xpEarned} XP
               </span>
             )}
           </div>
@@ -578,19 +570,13 @@ export const GratitudeView: React.FC = () => {
             </div>
           ) : (
             <div className="bg-white border border-stone-200/90 rounded-xl shadow-xs p-4 sm:p-5 space-y-4">
-              <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-stone-100">
-                <div>
-                  <span className="text-[11px] font-mono uppercase tracking-wider text-stone-500 font-semibold block">
-                    Today’s Notice
-                  </span>
-                  <h3 className="font-serif text-base font-medium text-charcoal mt-0.5">
-                    {formatEntryDate(todayStr)}
-                  </h3>
-                </div>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-200/80 text-[11px] font-mono font-semibold text-amber-800">
-                  <Sparkles size={11} className="text-gold" />
-                  +{GRATITUDE_XP} XP
+              <div className="pb-2.5 border-b border-stone-100">
+                <span className="text-[11px] font-mono uppercase tracking-wider text-stone-500 font-semibold block">
+                  Today’s Notice
                 </span>
+                <h3 className="font-serif text-base font-medium text-charcoal mt-0.5">
+                  {formatEntryDate(todayStr)}
+                </h3>
               </div>
 
               <GratitudeForm
