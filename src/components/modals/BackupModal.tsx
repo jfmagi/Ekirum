@@ -528,12 +528,12 @@ export const BackupModal: React.FC = () => {
                   <div className="flex items-center gap-2">
                     {permission === 'prompt' || permission === 'denied' ? (
                       <button
-                        onClick={handleReconnect}
+                        onClick={backupStatus?.handleStale ? handleSelectFolder : handleReconnect}
                         disabled={isSyncing}
                         className="px-3 py-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-mac transition-colors flex items-center gap-1"
                       >
                         <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-                        <span>Reconnect</span>
+                        <span>{backupStatus?.handleStale ? 'Re-select Folder' : 'Reconnect'}</span>
                       </button>
                     ) : permission === 'granted' ? (
                       <button

@@ -47,6 +47,7 @@ export interface BackupStatus {
   dailyBackupCount?: number;
   lastSyncReport?: SyncReport | null;
   statusWarning?: string | null;
+  handleStale?: boolean;
 }
 
 /**
@@ -253,9 +254,11 @@ export async function getBackupStatus(): Promise<BackupStatus> {
   let lastBackupAt: string | null = null;
   let lastSyncAt: string | null = null;
   let folderName: string | null = null;
+  let configHandleStale = false;
   let lastSyncReport: SyncReport | null = null;
   let handle: FileSystemDirectoryHandle | null = null;
   let statusWarning: string | null = null;
+  let handleStale = false;
 
   try {
     const metadata = await withTimeout(
@@ -278,6 +281,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     lastBackupAt = (metadata.lastBackup?.value as string) || null;
     lastSyncAt = (metadata.lastSync?.value as string) || null;
     folderName = (metadata.config?.value?.folderName as string) || null;
+    configHandleStale = Boolean(metadata.config?.value?.handleStale);
     lastSyncReport = (metadata.lastReportRecord?.value as SyncReport) || null;
     handle = metadata.savedHandle;
   } catch (err: any) {
@@ -315,6 +319,24 @@ export async function getBackupStatus(): Promise<BackupStatus> {
   }
 
   if (!handle) {
+    if (configHandleStale && folderName) {
+      return {
+        hasFileSystemSupport: true,
+        folderName,
+        lastBackupAt,
+        lastSyncAt,
+        permission: 'prompt',
+        isOverdue: Boolean(
+          lastBackupAt && (Date.now() - new Date(lastBackupAt).getTime()) > 48 * 3600 * 1000
+        ),
+        deviceId,
+        devicePlatform,
+        lastSyncReport,
+        handleStale: true,
+        statusWarning:
+          'Your browser update invalidated the saved folder handle. Click Re-select Folder to re-link your sync folder.',
+      };
+    }
     return {
       hasFileSystemSupport: true,
       folderName: null,
@@ -336,10 +358,28 @@ export async function getBackupStatus(): Promise<BackupStatus> {
       'Folder permission check'
     );
   } catch (err: any) {
-    console.warn('getBackupStatus permission check timed out/failed:', err);
+    console.warn('getBackupStatus permission check timed out/failed (stale browser handle):', err);
     permission = 'prompt';
+    handleStale = true;
+    const preservedName = handle.name || folderName;
+    // Clear the hung handle from memory and IndexedDB (Chromium/Edge 158+ bug where serialized
+    // handles never settle on queryPermission/requestPermission) so Re-select Folder can create a fresh one.
+    cachedDirectoryHandle = null;
+    await db.settings.delete(HANDLE_KEY).catch(() => {});
+    if (preservedName) {
+      await db.settings
+        .put({
+          key: CONFIG_KEY,
+          value: {
+            folderName: preservedName,
+            updatedAt: new Date().toISOString(),
+            handleStale: true,
+          },
+        })
+        .catch(() => {});
+    }
     statusWarning =
-      'Saved sync folder did not respond in time. Ensure your cloud drive is running, then click Reconnect or Change Folder.';
+      'Your browser update invalidated the saved folder handle. Click Re-select Folder to re-link your sync folder.';
   }
 
   const isOverdue = Boolean(
@@ -390,6 +430,7 @@ export async function getBackupStatus(): Promise<BackupStatus> {
     dailyBackupCount,
     lastSyncReport,
     statusWarning,
+    handleStale: handleStale || undefined,
   };
 }
 

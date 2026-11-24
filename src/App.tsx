@@ -128,7 +128,7 @@ export const App: React.FC = () => {
   // Automatically request directory handle permission on the user's first tap/touch/key press
   // when a sync folder is configured in IndexedDB but browser session permission is 'prompt'
   useEffect(() => {
-    if (!backupStatus?.folderName || backupStatus.permission !== 'prompt') return;
+    if (!backupStatus?.folderName || backupStatus.permission !== 'prompt' || backupStatus.handleStale) return;
     let triggered = false;
     const handleFirstGesture = () => {
       if (triggered) return;
@@ -147,7 +147,7 @@ export const App: React.FC = () => {
     window.addEventListener('pointerdown', handleFirstGesture, { once: true, passive: true });
     window.addEventListener('touchstart', handleFirstGesture, { once: true, passive: true });
     return cleanup;
-  }, [backupStatus?.folderName, backupStatus?.permission, reconnectBackupFolder]);
+  }, [backupStatus?.folderName, backupStatus?.permission, backupStatus?.handleStale, reconnectBackupFolder]);
 
   // Global Keyboard shortcuts with strict modifier protection
   useEffect(() => {

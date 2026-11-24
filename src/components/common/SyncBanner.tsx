@@ -56,6 +56,10 @@ export const SyncBanner: React.FC = () => {
         {isPermissionPrompt ? (
           <button
             onClick={async () => {
+              if (backupStatus.handleStale) {
+                await useEkirumStore.getState().selectBackupFolder();
+                return;
+              }
               const res = await reconnectBackupFolder();
               if (!res.success) {
                 await useEkirumStore.getState().selectBackupFolder();
@@ -65,7 +69,7 @@ export const SyncBanner: React.FC = () => {
             className="min-h-[34px] px-3 py-1.5 text-xs font-medium text-white bg-amber-700 hover:bg-amber-800 rounded-mac shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
           >
             <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-            <span>Reconnect</span>
+            <span>{backupStatus.handleStale ? 'Re-select Folder' : 'Reconnect'}</span>
           </button>
         ) : (
           <button
