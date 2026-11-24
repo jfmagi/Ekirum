@@ -237,7 +237,7 @@ export const GratitudeView: React.FC = () => {
   const projectMap = useMemo(() => new Map(activeProjects.map((p) => [p.id, p])), [activeProjects]);
 
   const {
-    unlockedPrivateKey,
+    unlockedPrivateKeys,
     isUnlocked,
     lockVault,
     openUnlockModal,
@@ -261,7 +261,7 @@ export const GratitudeView: React.FC = () => {
 
   // Decrypt gratitude entries whenever unlocked or entries change while unlocked
   useEffect(() => {
-    if (!unlockedPrivateKey) return;
+    if (unlockedPrivateKeys.length === 0) return;
     let cancelled = false;
 
     const decryptAll = async () => {
@@ -273,7 +273,7 @@ export const GratitudeView: React.FC = () => {
       const nextEntries: Record<string, DecryptedGratitudePayload> = {};
       for (const entry of toDecrypt) {
         try {
-          const payload = await decryptGratitudeEntry(unlockedPrivateKey, entry);
+          const payload = await decryptGratitudeEntry(unlockedPrivateKeys, entry);
           if (payload) {
             nextEntries[entry.id] = payload;
           }
@@ -293,7 +293,7 @@ export const GratitudeView: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [unlockedPrivateKey, gratitudeEntries, decryptedMap]);
+  }, [unlockedPrivateKeys, gratitudeEntries, decryptedMap]);
 
   const activeEntries = useMemo(
     () => gratitudeEntries.filter((e) => !e.isDeleted),

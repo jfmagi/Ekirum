@@ -70,7 +70,7 @@ export const DefusionView: React.FC = () => {
   const projectMap = useMemo(() => new Map(activeProjects.map((p) => [p.id, p])), [activeProjects]);
 
   const {
-    unlockedPrivateKey,
+    unlockedPrivateKeys,
     isUnlocked,
     lockVault,
     openUnlockModal,
@@ -85,7 +85,7 @@ export const DefusionView: React.FC = () => {
 
   // Decrypt sealed entries whenever vault is unlocked or new sealed entries arrive while unlocked
   useEffect(() => {
-    if (!unlockedPrivateKey) return;
+    if (unlockedPrivateKeys.length === 0) return;
     let cancelled = false;
 
     const decryptMissing = async () => {
@@ -98,7 +98,7 @@ export const DefusionView: React.FC = () => {
       const nextEntries: Record<string, DecryptedDefusionPayload> = {};
       for (const entry of sealedToDecrypt) {
         try {
-          const res = await decryptDefusionEntry(unlockedPrivateKey, entry);
+          const res = await decryptDefusionEntry(unlockedPrivateKeys, entry);
           if (res) {
             nextEntries[entry.id] = res;
           }
@@ -118,7 +118,7 @@ export const DefusionView: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [unlockedPrivateKey, defusionEntries, decryptedMap]);
+  }, [unlockedPrivateKeys, defusionEntries, decryptedMap]);
 
   const handleDefuseSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();

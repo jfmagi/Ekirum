@@ -58,6 +58,77 @@ export function isFileSystemAccessSupported(): boolean {
 }
 
 let cachedDirectoryHandle: FileSystemDirectoryHandle | null = null;
+let localSyncDirty = true;
+
+export function markLocalSyncDirty(): void {
+  localSyncDirty = true;
+}
+
+const TAB_INSTANCE_ID =
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+let broadcastChannel: BroadcastChannel | null = null;
+
+function getSyncBroadcastChannel(): BroadcastChannel | null {
+  // Guard with typeof document !== 'undefined' so Node.js test runners never open an unref'd BroadcastChannel handle
+  if (typeof document === 'undefined' || typeof BroadcastChannel === 'undefined') {
+    return null;
+  }
+  if (!broadcastChannel) {
+    try {
+      broadcastChannel = new BroadcastChannel('ekirum-sync-v1');
+      (broadcastChannel as any).unref?.();
+    } catch {
+      broadcastChannel = null;
+    }
+  }
+  return broadcastChannel;
+}
+
+export function notifyCrossTabSync(reason: 'local-mutation' | 'remote-merged'): void {
+  const ch = getSyncBroadcastChannel();
+  if (!ch) return;
+  try {
+    ch.postMessage({ tabId: TAB_INSTANCE_ID, reason, at: Date.now() });
+  } catch {
+    // ignore broadcast errors
+  }
+}
+
+export function subscribeCrossTabSync(onRemoteTabUpdate: () => void): () => void {
+  const ch = getSyncBroadcastChannel();
+  if (!ch) return () => {};
+  const handler = (event: MessageEvent) => {
+    if (event?.data && event.data.tabId && event.data.tabId !== TAB_INSTANCE_ID) {
+      onRemoteTabUpdate();
+    }
+  };
+  ch.addEventListener('message', handler);
+  return () => {
+    ch.removeEventListener('message', handler);
+  };
+}
+
+/**
+ * Compute a compact 64-char SHA-256 hex digest of exported tables so IndexedDB settings
+ * never store a multi-megabyte duplicate copy of the serialized database.
+ */
+export async function computeTablesHash(tables: unknown): Promise<string> {
+  const json = JSON.stringify(tables || {});
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
+    const encoded = new TextEncoder().encode(json);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', encoded);
+    const bytes = new Uint8Array(digest);
+    let hex = '';
+    for (let i = 0; i < bytes.length; i++) {
+      hex += bytes[i].toString(16).padStart(2, '0');
+    }
+    return hex;
+  }
+  return json;
+}
 
 /**
  * Retrieve the saved FileSystemDirectoryHandle from memory cache or IndexedDB.
@@ -566,23 +637,37 @@ export async function atomicWriteFile(
  */
 export async function writeDeviceFile(
   handle: FileSystemDirectoryHandle,
-  forceWrite = false
+  forceWrite = false,
+  options?: { skipIfClean?: boolean; prelistedEntries?: FileSystemHandle[] }
 ): Promise<boolean> {
   if (!handle || typeof (handle as any).getFileHandle !== 'function') return false;
   try {
     const deviceId = await getOrCreateDeviceId();
-    const backupData = await exportAll(deviceId);
-    const tablesFingerprint = JSON.stringify(backupData.tables);
-
-    const entries = await getDirectoryEntries(handle);
+    const entries = options?.prelistedEntries ?? (await getDirectoryEntries(handle));
     const ownEntries = entries.filter(
       (e) => e.kind === 'file' && classifySyncEntry(e.name, deviceId).kind === 'own-device'
     );
     const hasTimestampedOwnFile = ownEntries.some((e) => /^device-.+-\d{10,15}\.json$/i.test(e.name));
 
+    if (!forceWrite && options?.skipIfClean && !localSyncDirty && hasTimestampedOwnFile) {
+      return true;
+    }
+
+    const backupData = await exportAll(deviceId);
+    const tablesHash = await computeTablesHash(backupData.tables);
+
     const lastHashRecord = await db.settings.get('lastExportedTablesHash');
-    if (!forceWrite && lastHashRecord?.value === tablesFingerprint && hasTimestampedOwnFile) {
-      // Data has not changed since last export and our write-once timestamped device file is present
+    const prevHash = lastHashRecord?.value;
+    const isSameAsPrev =
+      prevHash === tablesHash ||
+      (typeof prevHash === 'string' && prevHash.startsWith('{') && prevHash === JSON.stringify(backupData.tables));
+
+    if (!forceWrite && isSameAsPrev && hasTimestampedOwnFile) {
+      if (prevHash !== tablesHash) {
+        // Migrate legacy multi-MB JSON string in settings to compact 64-byte SHA-256 hex digest
+        await db.settings.put({ key: 'lastExportedTablesHash', value: tablesHash });
+      }
+      localSyncDirty = false;
       return true;
     }
 
@@ -607,8 +692,9 @@ export async function writeDeviceFile(
       }
     }
 
-    await db.settings.put({ key: 'lastExportedTablesHash', value: tablesFingerprint });
+    await db.settings.put({ key: 'lastExportedTablesHash', value: tablesHash });
     await db.settings.put({ key: 'lastWrittenDeviceFile', value: writtenFileName });
+    localSyncDirty = false;
     return true;
   } catch (err) {
     console.error('Failed to write device sync file:', err);
@@ -621,7 +707,8 @@ export async function writeDeviceFile(
  */
 export async function performDailyBackup(
   handle: FileSystemDirectoryHandle,
-  force = false
+  force = false,
+  prelistedEntries?: FileSystemHandle[]
 ): Promise<boolean> {
   if (!handle || typeof (handle as any).getFileHandle !== 'function') return false;
   const deviceId = await getOrCreateDeviceId();
@@ -633,7 +720,7 @@ export async function performDailyBackup(
     : 999;
 
   if (!force && hoursSince < 24) {
-    await pruneOldBackups(handle).catch(() => {});
+    await pruneOldBackups(handle, prelistedEntries).catch(() => {});
     return false; // Backup is fresh (<24h)
   }
 
@@ -646,7 +733,7 @@ export async function performDailyBackup(
     // Check if today's daily snapshot from this device already exists in the folder.
     // Never overwrite an existing daily snapshot in-place because macOS Google Drive FileProvider
     // drops com.google.drivefs.item-id#S when an existing file is overwritten via .crswap.
-    const entries = await getDirectoryEntries(handle);
+    const entries = prelistedEntries ?? (await getDirectoryEntries(handle));
     const existingDaily = entries.some(
       (e) => e.kind === 'file' && e.name.toLowerCase() === dailyFileName.toLowerCase()
     );
@@ -661,8 +748,28 @@ export async function performDailyBackup(
     const nowIso = new Date().toISOString();
     await db.settings.put({ key: 'lastBackupAt', value: nowIso });
 
-    // Compact tombstones older than 60 days to keep tables bounded
-    await compactTombstones(60).catch((err) => console.warn('Tombstone compaction skipped:', err));
+    // Determine oldest active foreign device export horizon so tombstones aren't compacted prematurely
+    let oldestForeignHorizon: string | undefined;
+    try {
+      const mtimesRecord = await db.settings.get('deviceSyncMtimes');
+      const mtimesObj = mtimesRecord?.value;
+      if (mtimesObj && typeof mtimesObj === 'object') {
+        for (const [fileName, meta] of Object.entries(mtimesObj as Record<string, any>)) {
+          if (!fileName.toLowerCase().startsWith('device-')) continue;
+          const expIso = typeof meta?.exportedAt === 'string' ? meta.exportedAt : '';
+          if (expIso && (!oldestForeignHorizon || expIso < oldestForeignHorizon)) {
+            oldestForeignHorizon = expIso;
+          }
+        }
+      }
+    } catch {
+      // ignore horizon lookup error
+    }
+
+    // Compact tombstones older than 60 days (clamped by active foreign device horizon)
+    await compactTombstones(60, oldestForeignHorizon).catch((err) =>
+      console.warn('Tombstone compaction skipped:', err)
+    );
 
     // Prune old daily backups (keep last 2 as emergency rollback)
     await pruneOldBackups(handle);
@@ -787,10 +894,13 @@ async function getDirectoryEntries(
 /**
  * Keep only the last 2 backup-*.json files as an emergency rollback, deleting older ones.
  */
-export async function pruneOldBackups(handle: FileSystemDirectoryHandle): Promise<number> {
+export async function pruneOldBackups(
+  handle: FileSystemDirectoryHandle,
+  prelistedEntries?: FileSystemHandle[]
+): Promise<number> {
   try {
     const backupFiles: string[] = [];
-    const entries = await getDirectoryEntries(handle);
+    const entries = prelistedEntries ?? (await getDirectoryEntries(handle));
 
     for (const entry of entries) {
       if (entry.kind === 'file' && entry.name.toLowerCase().startsWith('backup-') && entry.name.toLowerCase().endsWith('.json')) {
@@ -963,7 +1073,7 @@ export async function syncDeviceFiles(
   handle: FileSystemDirectoryHandle,
   force = false,
   forceFullResync = false
-): Promise<{ filesProcessed: number; mergeResult?: MergeResult }> {
+): Promise<{ filesProcessed: number; mergeResult?: MergeResult; entries?: FileSystemHandle[] }> {
   const report: SyncReport = {
     at: new Date().toISOString(),
     deviceId: '',
@@ -985,7 +1095,7 @@ async function syncDeviceFilesInner(
   force: boolean,
   forceFullResync: boolean,
   report: SyncReport
-): Promise<{ filesProcessed: number; mergeResult?: MergeResult }> {
+): Promise<{ filesProcessed: number; mergeResult?: MergeResult; entries?: FileSystemHandle[] }> {
   try {
     const now = Date.now();
     if (!force) {
@@ -1062,14 +1172,28 @@ async function syncDeviceFilesInner(
         }
         try {
           const f = await (ownEntry as any).getFile();
+          const ownCheckKey = `__own_verified__:${ownEntry.name}`;
+          const prevOwnCheck = syncMtimes[ownCheckKey];
+          if (
+            !forceFullResync &&
+            prevOwnCheck &&
+            typeof prevOwnCheck === 'object' &&
+            prevOwnCheck.mtime === f.lastModified &&
+            prevOwnCheck.size === f.size
+          ) {
+            continue;
+          }
           const txt = await f.text();
           if (txt.length > 0) {
             const parsed = JSON.parse(txt);
-            const fileFingerprint = JSON.stringify(parsed?.tables || {});
+            const fileHash = await computeTablesHash(parsed?.tables || {});
             const localExport = await exportAll(localDeviceId);
-            const localFingerprint = JSON.stringify(localExport.tables);
+            const localHash = await computeTablesHash(localExport.tables);
+            const matchesLastExported =
+              fileHash === lastExportedHash ||
+              (lastExportedHash.startsWith('{') && JSON.stringify(parsed?.tables || {}) === lastExportedHash);
 
-            if (fileFingerprint !== localFingerprint && fileFingerprint !== lastExportedHash) {
+            if (fileHash !== localHash && !matchesLastExported) {
               const fileTaskCount = Array.isArray(parsed?.tables?.tasks) ? parsed.tables.tasks.length : 0;
               const localTaskCount = localExport.tables.tasks?.length || 0;
               const fileXp = parsed?.tables?.userProfile?.[0]?.totalXp || 0;
@@ -1082,6 +1206,8 @@ async function syncDeviceFilesInner(
                 break;
               }
             }
+            syncMtimes[ownCheckKey] = { mtime: f.lastModified, size: f.size };
+            mtimesChanged = true;
           }
         } catch {
           // ignore read errors during collision check
@@ -1120,17 +1246,19 @@ async function syncDeviceFilesInner(
 
       if (classification.kind === 'own-device') {
         // Local IndexedDB is already the authoritative state of truth for the local device.
-        // We never re-merge our own device files back into the local database.
+        // Skip reading/parsing own device files on background polls to save disk/cloud I/O.
         let ownOrigin = `Generated by: THIS DEVICE (${localPlatform}-${localDeviceId.slice(0, 8)})`;
-        try {
-          const ownFile = await (entry as any).getFile();
-          const ownText = await ownFile.text();
-          if (ownText.length > 0 && ownText.length <= MAX_DEVICE_FILE_SIZE) {
-            const ownData = JSON.parse(ownText);
-            ownOrigin = formatFileOrigin(ownData, entry.name, localDeviceId, localPlatform);
+        if (force) {
+          try {
+            const ownFile = await (entry as any).getFile();
+            const ownText = await ownFile.text();
+            if (ownText.length > 0 && ownText.length <= MAX_DEVICE_FILE_SIZE) {
+              const ownData = JSON.parse(ownText);
+              ownOrigin = formatFileOrigin(ownData, entry.name, localDeviceId, localPlatform);
+            }
+          } catch {
+            // fallback to default ownOrigin
           }
-        } catch {
-          // fallback to default ownOrigin
         }
         report.items.push({
           name: entry.name,
@@ -1161,18 +1289,27 @@ async function syncDeviceFilesInner(
     interface ParsedCandidate {
       entry: FileSystemHandle;
       data: any;
+      deviceId: string;
       origin: string;
       isArtifactToClean: boolean;
       isSnapshot: boolean;
       isCanonicalForeignDevice: boolean;
       currentMtime: number;
       currentSize: number;
+      hasExplicitSize: boolean;
       currentExportedAt: string;
+      taskCount: number;
+      totalXp: number;
       sortTime: number;
       shouldMerge: boolean;
     }
 
     const parsedCandidates: ParsedCandidate[] = [];
+    const [localTaskCount, localProfile] =
+      candidatesToExamine.length > 0
+        ? await Promise.all([db.tasks.count(), db.userProfile.toCollection().first()])
+        : [0, undefined];
+    const localXp = localProfile?.totalXp || 0;
 
     for (const { entry, isArtifactToClean, isSnapshot, isCanonicalForeignDevice } of candidatesToExamine) {
       try {
@@ -1184,6 +1321,58 @@ async function syncDeviceFilesInner(
           report.items.push({ name: entry.name, result: `FAILED: file too large (${file.size} bytes)` });
           filesFailed++;
           continue;
+        }
+
+        const hasExplicitSize = typeof file.size === 'number';
+        const statMtime = typeof file.lastModified === 'number' ? file.lastModified : 0;
+        const prevMeta = syncMtimes[entry.name];
+
+        // Fast-path before calling file.text() / JSON.parse():
+        // Skip reading unchanged files when mtime & size match our structured syncMtimes record
+        // (preserving legacy numeric-mtime migration where typeof prevMeta === 'number').
+        if (
+          !forceFullResync &&
+          !isArtifactToClean &&
+          prevMeta &&
+          typeof prevMeta === 'object' &&
+          typeof file.lastModified === 'number' &&
+          file.lastModified === prevMeta.mtime &&
+          (hasExplicitSize ? file.size === prevMeta.size && file.size > 0 : prevMeta.hasExplicitSize === false)
+        ) {
+          const cachedTaskCount = typeof prevMeta.taskCount === 'number' ? prevMeta.taskCount : -1;
+          const cachedXp = typeof prevMeta.totalXp === 'number' ? prevMeta.totalXp : -1;
+          const hasCachedCounts = cachedTaskCount >= 0 && cachedXp >= 0;
+          const cachedBehind = cachedTaskCount > localTaskCount || cachedXp > localXp;
+
+          if (hasCachedCounts && !cachedBehind) {
+            if (!isSnapshot && prevMeta.deviceId === localDeviceId) {
+              report.items.push({
+                name: entry.name,
+                result: 'device file matched own ID (skipped)',
+                origin: prevMeta.origin,
+              });
+              continue;
+            }
+
+            parsedCandidates.push({
+              entry,
+              data: null,
+              deviceId: typeof prevMeta.deviceId === 'string' ? prevMeta.deviceId : '',
+              origin: typeof prevMeta.origin === 'string' ? prevMeta.origin : '',
+              isArtifactToClean,
+              isSnapshot,
+              isCanonicalForeignDevice,
+              currentMtime: statMtime,
+              currentSize: hasExplicitSize ? file.size : (prevMeta.size ?? 0),
+              hasExplicitSize,
+              currentExportedAt: typeof prevMeta.exportedAt === 'string' ? prevMeta.exportedAt : '',
+              taskCount: cachedTaskCount,
+              totalXp: cachedXp,
+              sortTime: typeof prevMeta.sortTime === 'number' ? prevMeta.sortTime : statMtime,
+              shouldMerge: false,
+            });
+            continue;
+          }
         }
 
         const text = await file.text();
@@ -1202,16 +1391,19 @@ async function syncDeviceFilesInner(
         const data = JSON.parse(text);
         const origin = formatFileOrigin(data, entry.name, localDeviceId, localPlatform);
 
-        const currentMtime = typeof file.lastModified === 'number' ? file.lastModified : 0;
-        const currentSize = typeof file.size === 'number' && file.size > 0 ? file.size : text.length;
+        const currentMtime = statMtime;
+        const currentSize = hasExplicitSize && file.size > 0 ? file.size : text.length;
         const currentExportedAt = typeof data?.exportedAt === 'string' ? data.exportedAt : '';
         const exportedMs = currentExportedAt ? Date.parse(currentExportedAt) : NaN;
         const sortTime = !Number.isNaN(exportedMs) ? exportedMs : currentMtime;
+        const candidateDeviceId = typeof data?.deviceId === 'string' ? data.deviceId : '';
+        const candidateTaskCount = Array.isArray(data?.tables?.tasks) ? data.tables.tasks.length : 0;
+        const candidateXp = data?.tables?.userProfile?.[0]?.totalXp || 0;
 
         // For device files: If a foreign device file internally claims to have the local device ID,
         // local IndexedDB is already the authoritative state of truth for this device ID.
         // (Snapshots are archive backups and are ALWAYS eligible for CRDT/LWW merge if not unchanged).
-        if (!isSnapshot && data?.deviceId === localDeviceId) {
+        if (!isSnapshot && candidateDeviceId === localDeviceId) {
           report.items.push({
             name: entry.name,
             result: 'device file matched own ID (skipped)',
@@ -1220,23 +1412,23 @@ async function syncDeviceFilesInner(
           syncMtimes[entry.name] = {
             mtime: currentMtime,
             size: currentSize,
+            hasExplicitSize,
             exportedAt: currentExportedAt,
+            deviceId: candidateDeviceId,
+            origin,
+            taskCount: candidateTaskCount,
+            totalXp: candidateXp,
+            sortTime,
           };
           mtimesChanged = true;
           continue;
         }
 
-        const prevMeta = syncMtimes[entry.name];
         const prevMtime = typeof prevMeta === 'number' ? prevMeta : (prevMeta?.mtime ?? -1);
         const prevSize = typeof prevMeta === 'object' && prevMeta !== null ? (prevMeta?.size ?? -1) : -1;
         const prevExportedAt =
           typeof prevMeta === 'object' && prevMeta !== null ? (prevMeta?.exportedAt ?? '') : '';
 
-        const candidateTaskCount = Array.isArray(data?.tables?.tasks) ? data.tables.tasks.length : 0;
-        const candidateXp = data?.tables?.userProfile?.[0]?.totalXp || 0;
-        const localTaskCount = await db.tasks.count();
-        const localProfile = await db.userProfile.toCollection().first();
-        const localXp = localProfile?.totalXp || 0;
         const isBehindCandidate = candidateTaskCount > localTaskCount || candidateXp > localXp;
 
         const isUnchanged =
@@ -1244,20 +1436,40 @@ async function syncDeviceFilesInner(
           !forceFullResync &&
           !isArtifactToClean &&
           prevMeta !== undefined &&
+          typeof prevMeta === 'object' &&
           currentMtime === prevMtime &&
           currentSize === prevSize &&
           currentExportedAt === prevExportedAt;
 
+        if (isUnchanged && (prevMeta.taskCount === undefined || prevMeta.hasExplicitSize === undefined)) {
+          syncMtimes[entry.name] = {
+            mtime: currentMtime,
+            size: currentSize,
+            hasExplicitSize,
+            exportedAt: currentExportedAt,
+            deviceId: candidateDeviceId,
+            origin,
+            taskCount: candidateTaskCount,
+            totalXp: candidateXp,
+            sortTime,
+          };
+          mtimesChanged = true;
+        }
+
         parsedCandidates.push({
           entry,
           data,
+          deviceId: candidateDeviceId,
           origin,
           isArtifactToClean,
           isSnapshot,
           isCanonicalForeignDevice,
           currentMtime,
           currentSize,
+          hasExplicitSize,
           currentExportedAt,
+          taskCount: candidateTaskCount,
+          totalXp: candidateXp,
           sortTime,
           shouldMerge: !isUnchanged,
         });
@@ -1287,7 +1499,20 @@ async function syncDeviceFilesInner(
         });
         continue;
       }
-      const { entry, data, origin, isArtifactToClean, currentMtime, currentSize, currentExportedAt } = candidate;
+      const {
+        entry,
+        data,
+        deviceId: candidateDeviceId,
+        origin,
+        isArtifactToClean,
+        currentMtime,
+        currentSize,
+        hasExplicitSize,
+        currentExportedAt,
+        taskCount,
+        totalXp,
+        sortTime,
+      } = candidate;
 
       try {
         const mergeRes = await importAndMerge(data);
@@ -1306,7 +1531,13 @@ async function syncDeviceFilesInner(
             syncMtimes[entry.name] = {
               mtime: currentMtime,
               size: currentSize,
+              hasExplicitSize,
               exportedAt: currentExportedAt,
+              deviceId: candidateDeviceId,
+              origin,
+              taskCount,
+              totalXp,
+              sortTime,
             };
           }
           mtimesChanged = true;
@@ -1336,7 +1567,7 @@ async function syncDeviceFilesInner(
       const foreignByDeviceId = new Map<string, ParsedCandidate[]>();
       for (const c of parsedCandidates) {
         if (!c.isCanonicalForeignDevice) continue;
-        const devId = typeof c.data?.deviceId === 'string' && c.data.deviceId ? c.data.deviceId : '';
+        const devId = c.deviceId;
         if (!devId || devId === localDeviceId) continue;
         const list = foreignByDeviceId.get(devId) || [];
         list.push(c);
@@ -1380,6 +1611,7 @@ async function syncDeviceFilesInner(
 
     return {
       filesProcessed,
+      entries,
       mergeResult: {
         success: filesFailed === 0,
         stats: {},
@@ -1417,11 +1649,19 @@ async function executeBackupAndSyncPass(force: boolean, forceFullResync = false)
     const totalChanges = syncRes.mergeResult?.totalChanges || 0;
     const filesProcessed = syncRes.filesProcessed || 0;
 
-    // 2. Export our up-to-date state (only writes when local data changed or no write-once file exists yet)
-    const deviceWriteOk = await writeDeviceFile(handle, false);
+    if (totalChanges > 0) {
+      localSyncDirty = true;
+      notifyCrossTabSync('remote-merged');
+    }
+
+    // 2. Export our up-to-date state, reusing the already-listed directory entries on unforced polls
+    const deviceWriteOk = await writeDeviceFile(handle, false, {
+      skipIfClean: !force,
+      prelistedEntries: syncRes.entries,
+    });
 
     // 3. Daily backup snapshot (if >=24h or forced)
-    await performDailyBackup(handle, force);
+    await performDailyBackup(handle, force, syncRes.entries);
 
     const syncSuccess = Boolean(syncRes.mergeResult && syncRes.mergeResult.success);
     const isSuccess = syncSuccess && (deviceWriteOk || filesProcessed > 0);
@@ -1447,10 +1687,17 @@ async function executeBackupAndSyncPass(force: boolean, forceFullResync = false)
 
 let pendingSyncFullResync: boolean | null = null;
 
+async function withCrossTabSyncLock<T>(fn: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function') {
+    return navigator.locks.request('ekirum-folder-sync', { mode: 'exclusive' }, fn);
+  }
+  return fn();
+}
+
 /**
  * Automated lifecycle check: called on app mount, visibilitychange, and periodic checks.
  * Queues concurrent requests instead of dropping them so manual "Sync Now" or rapid
- * local mutations during an in-flight sync never fail or get lost.
+ * local mutations during an in-flight sync never fail or get lost, and serializes across browser tabs.
  */
 export async function maybeBackupAndSync(force = false, forceFullResync = false): Promise<BackupAndSyncResult> {
   if (activeSyncPromise) {
@@ -1464,6 +1711,7 @@ export async function maybeBackupAndSync(force = false, forceFullResync = false)
     let aggregatedChanges = 0;
     let aggregatedFiles = 0;
     let lastDeviceWriteOk: boolean | undefined = undefined;
+    let lastError: string | undefined = undefined;
     let currentForce = force;
     let currentFullResync = forceFullResync;
 
@@ -1471,13 +1719,16 @@ export async function maybeBackupAndSync(force = false, forceFullResync = false)
       while (true) {
         pendingSyncForce = null;
         pendingSyncFullResync = null;
-        const res = await executeBackupAndSyncPass(currentForce, currentFullResync);
+        const res = await withCrossTabSyncLock(() =>
+          executeBackupAndSyncPass(currentForce, currentFullResync)
+        );
         aggregatedSuccess = res.success;
         aggregatedChanges += res.totalChanges;
         aggregatedFiles += res.filesProcessed;
         if (res.deviceWriteOk !== undefined) {
           lastDeviceWriteOk = res.deviceWriteOk;
         }
+        lastError = res.error;
 
         if (pendingSyncForce !== null || pendingSyncFullResync !== null) {
           currentForce = Boolean(pendingSyncForce);
@@ -1491,6 +1742,7 @@ export async function maybeBackupAndSync(force = false, forceFullResync = false)
         totalChanges: aggregatedChanges,
         filesProcessed: aggregatedFiles,
         deviceWriteOk: lastDeviceWriteOk,
+        error: lastError,
       };
     } finally {
       activeSyncPromise = null;

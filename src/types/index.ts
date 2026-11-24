@@ -130,6 +130,7 @@ export interface LibraryItem extends BaseEntity {
 export interface DefusionEntry extends BaseEntity {
   projectId?: string; // Optional link to Project & Skill (silently receives 10 XP)
   burned: boolean; // If true, plaintext was permanently vaporized (no ciphertext stored)
+  vaultKeyId?: string; // Fingerprint of the RSA public key that sealed this entry
   ciphertext?: string; // Base64 AES-256-GCM encrypted JSON payload { text: string; prefix?: string }
   iv?: string; // Base64 12-byte IV for AES-256-GCM
   wrappedKey?: string; // Base64 RSA-OAEP 2048-bit wrapped AES-256 key
@@ -141,6 +142,7 @@ export interface GratitudeEntry extends BaseEntity {
   date: string; // YYYY-MM-DD
   itemCount?: number; // Number of gratitude items stored inside ciphertext (defaults to 1)
   projectId?: string; // Optional link to Project & Skill
+  vaultKeyId?: string; // Fingerprint of the RSA public key that sealed this entry
   ciphertext?: string; // Base64 AES-256-GCM encrypted JSON payload { items: string[]; note?: string }
   iv?: string; // Base64 12-byte IV for AES-256-GCM
   wrappedKey?: string; // Base64 RSA-OAEP 2048-bit wrapped AES-256 key
@@ -150,8 +152,21 @@ export interface GratitudeEntry extends BaseEntity {
   dailyBonusXp?: number; // Internal bonus XP value for sync delta
 }
 
+export interface RetiredVaultKeyring {
+  vaultKeyId?: string;
+  publicKeyJwk: string;
+  wrappedPrivateKey?: string;
+  salt?: string;
+  iv?: string;
+  pendingSealKey?: string;
+  pendingWrappedPrivateKey?: string;
+  pendingIv?: string;
+  passphraseConfigured: boolean;
+}
+
 export interface DefusionVaultConfig extends BaseEntity {
   id: string; // 'vault-1'
+  vaultKeyId?: string; // Fingerprint of publicKeyJwk
   publicKeyJwk: string; // JSON stringified JsonWebKey for RSA-OAEP 2048 public key
   wrappedPrivateKey?: string; // Base64 AES-256-GCM encrypted PKCS#8 private key (when passphrase is set)
   salt?: string; // Base64 16-byte PBKDF2 salt
@@ -160,6 +175,7 @@ export interface DefusionVaultConfig extends BaseEntity {
   pendingWrappedPrivateKey?: string; // Base64 AES-GCM encrypted PKCS#8 private key before passphrase is created
   pendingIv?: string; // Base64 12-byte IV for pendingWrappedPrivateKey
   passphraseConfigured: boolean;
+  retiredKeyrings?: RetiredVaultKeyring[]; // Preserved keyrings from multi-device offline vault creation
 }
 
 export type ViewType = 'today' | 'calendar' | 'upcoming' | 'completed' | 'habits' | 'library' | 'gratitude' | 'defusion' | 'character' | 'project' | 'inbox';

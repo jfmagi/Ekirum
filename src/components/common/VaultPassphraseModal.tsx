@@ -12,7 +12,7 @@ import { DefusionVaultConfig } from '../../types';
 import {
   initializeDefusionVault,
   configureVaultPassphrase,
-  unlockDefusionVault,
+  unlockAllVaultKeys,
 } from '../../lib/defusionCrypto';
 
 const AUTO_LOCK_MS = 5 * 60 * 1000; // 5 minutes of inactivity
@@ -21,6 +21,7 @@ export type VaultModalMode = 'unlock' | 'setup' | 'change' | null;
 
 export interface VaultSessionHandle {
   unlockedPrivateKey: CryptoKey | null;
+  unlockedPrivateKeys: CryptoKey[];
   isUnlocked: boolean;
   lockVault: () => void;
   openUnlockModal: () => void;
@@ -53,7 +54,8 @@ export function useVaultSession(
   saveDefusionVaultConfig: (vault: DefusionVaultConfig) => Promise<void>,
   onLock?: () => void
 ): VaultSessionHandle {
-  const [unlockedPrivateKey, setUnlockedPrivateKey] = useState<CryptoKey | null>(null);
+  const [unlockedPrivateKeys, setUnlockedPrivateKeys] = useState<CryptoKey[]>([]);
+  const unlockedPrivateKey = unlockedPrivateKeys[0] || null;
   const [passphraseModalMode, setPassphraseModalMode] = useState<VaultModalMode>(null);
   const [currentPassInput, setCurrentPassInput] = useState('');
   const [passInput, setPassInput] = useState('');
@@ -67,7 +69,7 @@ export function useVaultSession(
   onLockRef.current = onLock;
 
   const lockVault = useCallback(() => {
-    setUnlockedPrivateKey(null);
+    setUnlockedPrivateKeys([]);
     setPassphraseModalMode(null);
     setCurrentPassInput('');
     setPassInput('');
@@ -103,7 +105,7 @@ export function useVaultSession(
   // Wipe key immediately when leaving the tab (component unmount)
   useEffect(() => {
     return () => {
-      setUnlockedPrivateKey(null);
+      setUnlockedPrivateKeys([]);
     };
   }, []);
 
@@ -148,12 +150,13 @@ export function useVaultSession(
         if (!defusionVault) {
           const freshVault = await initializeDefusionVault(passInput);
           await saveDefusionVaultConfig(freshVault);
-          const key = await unlockDefusionVault(freshVault, passInput);
-          setUnlockedPrivateKey(key);
+          const keys = await unlockAllVaultKeys(freshVault, passInput);
+          setUnlockedPrivateKeys(keys);
         } else {
-          const { updatedVault, privateKey } = await configureVaultPassphrase(defusionVault, passInput);
+          const { updatedVault } = await configureVaultPassphrase(defusionVault, passInput);
           await saveDefusionVaultConfig(updatedVault);
-          setUnlockedPrivateKey(privateKey);
+          const keys = await unlockAllVaultKeys(updatedVault, passInput);
+          setUnlockedPrivateKeys(keys);
         }
         setPassphraseModalMode(null);
       } else if (passphraseModalMode === 'unlock') {
@@ -161,8 +164,8 @@ export function useVaultSession(
           setPassError('Vault is not initialized yet.');
           return;
         }
-        const key = await unlockDefusionVault(defusionVault, passInput);
-        setUnlockedPrivateKey(key);
+        const keys = await unlockAllVaultKeys(defusionVault, passInput);
+        setUnlockedPrivateKeys(keys);
         setPassphraseModalMode(null);
       } else if (passphraseModalMode === 'change') {
         if (!defusionVault) return;
@@ -174,13 +177,14 @@ export function useVaultSession(
           setPassError('New passphrases do not match.');
           return;
         }
-        const { updatedVault, privateKey } = await configureVaultPassphrase(
+        const { updatedVault } = await configureVaultPassphrase(
           defusionVault,
           passInput,
           currentPassInput
         );
         await saveDefusionVaultConfig(updatedVault);
-        setUnlockedPrivateKey(privateKey);
+        const keys = await unlockAllVaultKeys(updatedVault, passInput);
+        setUnlockedPrivateKeys(keys);
         setPassphraseModalMode(null);
       }
     } catch (err) {
@@ -192,7 +196,8 @@ export function useVaultSession(
 
   return {
     unlockedPrivateKey,
-    isUnlocked: Boolean(unlockedPrivateKey),
+    unlockedPrivateKeys,
+    isUnlocked: unlockedPrivateKeys.length > 0,
     lockVault,
     openUnlockModal,
     openChangePassphraseModal,

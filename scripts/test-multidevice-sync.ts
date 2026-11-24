@@ -2,8 +2,23 @@ import 'fake-indexeddb/auto';
 import assert from 'node:assert';
 import { db, initializeDatabase } from '../src/lib/db';
 import { useEkirumStore } from '../src/store/useEkirumStore';
-import { reconnectBackupDirectory, writeDeviceFile, atomicWriteFile } from '../src/lib/backupService';
-import { exportAll } from '../src/lib/syncEngine';
+import { reconnectBackupDirectory, writeDeviceFile, atomicWriteFile, syncDeviceFiles } from '../src/lib/backupService';
+import {
+  exportAll,
+  importAndMerge,
+  mergeDefusionVault,
+  mergeTasks,
+  compactTombstones,
+} from '../src/lib/syncEngine';
+import {
+  initializeDefusionVault,
+  configureVaultPassphrase,
+  unlockAllVaultKeys,
+  encryptDefusionPayload,
+  decryptDefusionEntry,
+  encryptGratitudePayload,
+  decryptGratitudeEntry,
+} from '../src/lib/defusionCrypto';
 import { Task, UserProfile } from '../src/types';
 
 (globalThis as any).window = (globalThis as any).window || {};
@@ -346,6 +361,203 @@ async function runTest() {
   const desktopFinalXp = useEkirumStore.getState().user.totalXp;
   console.log('Desktop final XP:', desktopFinalXp);
   assert.strictEqual(desktopFinalXp, 165 + 25 + 25, 'Desktop should have 215 XP (165 + 25 + 25)');
+
+  // --- Regression A: SHA-256 lastExportedTablesHash & zero file.text() reads on unchanged polls ---
+  console.log('\nTesting SHA-256 hash storage & zero-read mtime/size fast-path...');
+  const hashRecord = await db.settings.get('lastExportedTablesHash');
+  assert.ok(
+    typeof hashRecord?.value === 'string' && /^[a-f0-9]{64}$/.test(hashRecord.value),
+    'lastExportedTablesHash must store a 64-char SHA-256 hex digest rather than full JSON'
+  );
+
+  let textReads = 0;
+  const peerPayload = JSON.stringify({
+    schemaVersion: 1,
+    deviceId: 'peer-tablet-999',
+    exportedAt: '2026-10-25T15:00:00.000Z',
+    tables: {
+      tasks: [],
+      projects: [],
+      skills: [],
+      habits: [],
+      habitEvents: [],
+      achievements: [],
+      userProfile: [{ ...(await db.userProfile.get('user-1'))!, totalXp: 10 }],
+    },
+  });
+  const countingDir = {
+    kind: 'directory',
+    name: 'counting-dir',
+    async *values() {
+      yield {
+        kind: 'file',
+        name: 'device-tablet-peer-tablet-999-1729868400000.json',
+        getFile: async () => ({
+          name: 'device-tablet-peer-tablet-999-1729868400000.json',
+          lastModified: 1729868400000,
+          size: peerPayload.length,
+          text: async () => {
+            textReads++;
+            return peerPayload;
+          },
+        }),
+      };
+    },
+  } as any;
+
+  await syncDeviceFiles(countingDir, true);
+  assert.strictEqual(textReads, 1, 'First sync pass reads the foreign device file once');
+  const secondPoll = await syncDeviceFiles(countingDir, true);
+  assert.strictEqual(secondPoll.filesProcessed, 0);
+  assert.strictEqual(textReads, 1, 'Unchanged foreign file must skip file.text() completely on subsequent polls');
+
+  // --- Regression B: Multi-key vault keyring prevents split-brain data loss ---
+  console.log('Testing multi-key vault split-brain keyring preservation...');
+  const pendingVaultA = await initializeDefusionVault();
+  const sealedThoughtA = await encryptDefusionPayload(pendingVaultA.publicKeyJwk, {
+    text: 'Sealed offline on Device A before passphrase setup',
+  });
+  const sealedGratitudeA = await encryptGratitudePayload(pendingVaultA.publicKeyJwk, {
+    items: ['Morning coffee on Device A'],
+  });
+
+  const configuredVaultB = await initializeDefusionVault('shared-vault-secret');
+  const sealedThoughtB = await encryptDefusionPayload(configuredVaultB.publicKeyJwk, {
+    text: 'Sealed on Device B with configured passphrase',
+  });
+
+  const mergedVault = mergeDefusionVault(pendingVaultA, configuredVaultB, true);
+  assert.strictEqual(mergedVault.passphraseConfigured, true);
+  assert.strictEqual(mergedVault.publicKeyJwk, configuredVaultB.publicKeyJwk);
+  assert.strictEqual(mergedVault.retiredKeyrings?.length, 1, 'Pending vault A keypair must be preserved in retiredKeyrings');
+
+  const unlockedKeys = await unlockAllVaultKeys(mergedVault, 'shared-vault-secret');
+  assert.strictEqual(unlockedKeys.length, 2, 'unlockAllVaultKeys must unlock both primary and preserved pending keyring');
+  const decA = await decryptDefusionEntry(unlockedKeys, { ...sealedThoughtA, burned: false });
+  const decGratA = await decryptGratitudeEntry(unlockedKeys, sealedGratitudeA);
+  const decB = await decryptDefusionEntry(unlockedKeys, { ...sealedThoughtB, burned: false });
+  assert.strictEqual(decA?.text, 'Sealed offline on Device A before passphrase setup');
+  assert.deepStrictEqual(decGratA?.items, ['Morning coffee on Device A']);
+  assert.strictEqual(decB?.text, 'Sealed on Device B with configured passphrase');
+
+  // Rotating passphrase re-wraps retired pending keyring under the new passphrase too
+  const { updatedVault: rotatedMerged } = await configureVaultPassphrase(
+    mergedVault,
+    'rotated-secret-2026',
+    'shared-vault-secret'
+  );
+  assert.strictEqual(rotatedMerged.retiredKeyrings?.[0]?.passphraseConfigured, true);
+  assert.strictEqual(rotatedMerged.retiredKeyrings?.[0]?.pendingSealKey, undefined);
+  const rotatedKeys = await unlockAllVaultKeys(rotatedMerged, 'rotated-secret-2026');
+  assert.strictEqual(rotatedKeys.length, 2);
+  assert.strictEqual(
+    (await decryptDefusionEntry(rotatedKeys, { ...sealedThoughtA, burned: false }))?.text,
+    'Sealed offline on Device A before passphrase setup'
+  );
+
+  // --- Regression C: Bidirectional subtask completion preservation ---
+  console.log('Testing bidirectional subtask completion merge...');
+  const taskDeviceA: Task = {
+    id: 'task-sub-1',
+    title: 'Original Title',
+    completed: false,
+    priority: 'p2',
+    labels: [],
+    subtasks: [
+      { id: 'sub-1', title: 'Checked on A', completed: true },
+      { id: 'sub-2', title: 'Unchecked', completed: false },
+    ],
+    createdAt: '2026-11-01T10:00:00.000Z',
+    updatedAt: '2026-11-01T10:05:00.000Z',
+    isDeleted: false,
+  };
+  const taskDeviceBNewerEdit: Task = {
+    ...taskDeviceA,
+    title: 'Renamed Title on B',
+    subtasks: [
+      { id: 'sub-1', title: 'Checked on A', completed: false },
+      { id: 'sub-2', title: 'Unchecked', completed: true },
+    ],
+    updatedAt: '2026-11-01T10:10:00.000Z',
+  };
+  const mergedTask = mergeTasks(taskDeviceA, taskDeviceBNewerEdit, true);
+  assert.strictEqual(mergedTask.title, 'Renamed Title on B');
+  assert.strictEqual(mergedTask.subtasks.find((s) => s.id === 'sub-1')?.completed, true);
+  assert.strictEqual(mergedTask.subtasks.find((s) => s.id === 'sub-2')?.completed, true);
+
+  // --- Regression D: XP delta guards (un-awarded defusion & tombstoned habit events) ---
+  console.log('Testing XP delta guards for capped defusion & tombstoned habit check-ins...');
+  const xpBeforeGuardTest = (await db.userProfile.get('user-1'))!.totalXp;
+  await importAndMerge({
+    schemaVersion: 1,
+    deviceId: 'guard-peer',
+    exportedAt: '2026-11-02T10:00:00.000Z',
+    tables: {
+      defusionEntries: [
+        {
+          id: 'def-capped-0',
+          burned: true,
+          xpAwarded: false,
+          xpEarned: 0,
+          createdAt: '2026-11-02T09:00:00.000Z',
+          updatedAt: '2026-11-02T09:00:00.000Z',
+          isDeleted: false,
+        },
+      ],
+      habits: [
+        {
+          id: 'hab-tomb-1',
+          name: 'Meditation',
+          frequency: 'daily',
+          completedDates: ['2026-11-01'],
+          streak: 0,
+          longestStreak: 0,
+          createdAt: '2026-11-01T08:00:00.000Z',
+          updatedAt: '2026-11-01T08:00:00.000Z',
+          isDeleted: false,
+        },
+      ],
+      habitEvents: [
+        {
+          id: 'event-hab-tomb-1-2026-11-01',
+          habitId: 'hab-tomb-1',
+          date: '2026-11-01',
+          completedAt: '2026-11-01T08:00:00.000Z',
+          createdAt: '2026-11-01T08:00:00.000Z',
+          updatedAt: '2026-11-01T09:00:00.000Z',
+          isDeleted: true,
+        },
+      ],
+    },
+  });
+  const xpAfterGuardTest = (await db.userProfile.get('user-1'))!.totalXp;
+  assert.strictEqual(
+    xpAfterGuardTest,
+    xpBeforeGuardTest,
+    'Un-awarded defusion entries and tombstoned habit dates must not credit XP deltas'
+  );
+
+  // --- Regression E: Tombstone compaction respects foreign device horizon ---
+  console.log('Testing horizon-bounded tombstone compaction...');
+  const ninetyDaysAgoIso = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+  const oneHundredTwentyDaysAgoIso = new Date(Date.now() - 120 * 24 * 3600 * 1000).toISOString();
+  await db.tasks.put({
+    id: 'old-deleted-task-90d',
+    title: 'Deleted 90d ago',
+    completed: false,
+    priority: 'p4',
+    labels: [],
+    subtasks: [],
+    createdAt: ninetyDaysAgoIso,
+    updatedAt: ninetyDaysAgoIso,
+    isDeleted: true,
+  });
+  const purgedProtected = await compactTombstones(60, oneHundredTwentyDaysAgoIso);
+  assert.strictEqual(purgedProtected, 0, 'Tombstone newer than active foreign device horizon must be retained');
+  assert.ok(await db.tasks.get('old-deleted-task-90d'));
+  const purgedUnprotected = await compactTombstones(60);
+  assert.ok(purgedUnprotected >= 1);
+  assert.strictEqual(await db.tasks.get('old-deleted-task-90d'), undefined);
 
   console.log('\n🎉 ALL CONCURRENT SYNC SCENARIOS FULLY CONVERGED!');
 }

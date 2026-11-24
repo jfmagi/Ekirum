@@ -12,6 +12,7 @@ import {
   GratitudeEntry,
   DefusionEntry,
   DefusionVaultConfig,
+  RetiredVaultKeyring,
 } from '../types';
 import { calculateHabitStreak } from '../store/useEkirumStore';
 import { computeUserLevelAndRank, calculateSkillLevel, getEkirumRankTitle } from './characterMath';
@@ -44,13 +45,18 @@ export interface MergeResult {
 }
 
 export const MAX_RECORDS_PER_TABLE = 50000;
+export const CURRENT_BACKUP_SCHEMA_VERSION = 1;
 
 /**
- * Garbage-collect soft-deleted tombstones older than the retention cutoff (default: 60 days).
- * Prevents unbounded Dexie table growth while safely protecting distributed LWW sync.
+ * Garbage-collect soft-deleted tombstones older than the retention cutoff (default: 60 days),
+ * clamped against an optional active foreign-device horizon so offline peers cannot resurrect deleted records.
  */
-export async function compactTombstones(cutoffDays = 60): Promise<number> {
-  const cutoffTime = new Date(Date.now() - cutoffDays * 24 * 3600 * 1000).toISOString();
+export async function compactTombstones(cutoffDays = 60, maxHorizonIso?: string): Promise<number> {
+  const defaultCutoff = new Date(Date.now() - cutoffDays * 24 * 3600 * 1000).toISOString();
+  const cutoffTime =
+    typeof maxHorizonIso === 'string' && maxHorizonIso && maxHorizonIso < defaultCutoff
+      ? maxHorizonIso
+      : defaultCutoff;
   let purgedCount = 0;
 
   await db.transaction(
@@ -379,6 +385,7 @@ export function mergeDefusionEntries(
   };
 
   if (burned) {
+    delete result.vaultKeyId;
     delete result.ciphertext;
     delete result.iv;
     delete result.wrappedKey;
@@ -393,10 +400,40 @@ export function mergeDefusionEntries(
   return result;
 }
 
+function toRetiredKeyring(v: DefusionVaultConfig | RetiredVaultKeyring): RetiredVaultKeyring {
+  const passphraseConfigured = Boolean(v.passphraseConfigured);
+  const kr: RetiredVaultKeyring = {
+    ...(v.vaultKeyId ? { vaultKeyId: v.vaultKeyId } : {}),
+    publicKeyJwk: v.publicKeyJwk.trim(),
+    ...(v.wrappedPrivateKey ? { wrappedPrivateKey: v.wrappedPrivateKey } : {}),
+    ...(v.salt ? { salt: v.salt } : {}),
+    ...(v.iv ? { iv: v.iv } : {}),
+    ...(!passphraseConfigured && v.pendingSealKey ? { pendingSealKey: v.pendingSealKey } : {}),
+    ...(!passphraseConfigured && v.pendingWrappedPrivateKey
+      ? { pendingWrappedPrivateKey: v.pendingWrappedPrivateKey }
+      : {}),
+    ...(!passphraseConfigured && v.pendingIv ? { pendingIv: v.pendingIv } : {}),
+    passphraseConfigured,
+  };
+  return kr;
+}
+
+function mergeKeyringPair(existingKr: RetiredVaultKeyring, incomingKr: RetiredVaultKeyring): RetiredVaultKeyring {
+  if (incomingKr.passphraseConfigured && !existingKr.passphraseConfigured) {
+    return incomingKr;
+  }
+  if (existingKr.passphraseConfigured && !incomingKr.passphraseConfigured) {
+    return existingKr;
+  }
+  return incomingKr;
+}
+
 /**
  * Custom merger for DefusionVaultConfig ensuring:
- * Once a passphrase is configured on any device, the passphrase-wrapped vault configuration
- * always takes precedence over an unconfigured pending vault.
+ * 1. Once a passphrase is configured on any device, the passphrase-wrapped vault configuration
+ *    always takes precedence over an unconfigured pending vault.
+ * 2. Split-brain protection: if two devices independently generated distinct RSA keypairs offline,
+ *    the losing keypair is preserved in `retiredKeyrings` rather than overwritten, preventing permanent data loss.
  */
 export function mergeDefusionVault(
   existing: DefusionVaultConfig,
@@ -412,11 +449,41 @@ export function mergeDefusionVault(
     chosen = isIncomingNewer ? incoming : existing;
   }
 
+  const other = chosen === incoming ? existing : incoming;
+  const chosenJwk = chosen.publicKeyJwk.trim();
+
+  // Union retired keyrings + preserve `other` if it represents a distinct RSA keypair
+  const retiredMap = new Map<string, RetiredVaultKeyring>();
+  const addKeyring = (kr: RetiredVaultKeyring) => {
+    const jwkKey = kr.publicKeyJwk.trim();
+    if (!jwkKey || jwkKey === chosenJwk) return;
+    const prev = retiredMap.get(jwkKey);
+    retiredMap.set(jwkKey, prev ? mergeKeyringPair(prev, kr) : kr);
+  };
+
+  if (Array.isArray(existing.retiredKeyrings)) {
+    existing.retiredKeyrings.forEach(addKeyring);
+  }
+  if (Array.isArray(incoming.retiredKeyrings)) {
+    incoming.retiredKeyrings.forEach(addKeyring);
+  }
+  if (other.publicKeyJwk.trim() !== chosenJwk) {
+    addKeyring(toRetiredKeyring(other));
+  }
+
+  const mergedRetired = Array.from(retiredMap.values());
+
   const result: DefusionVaultConfig = {
     ...chosen,
     id: existing.id || incoming.id || 'vault-1',
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
+
+  if (mergedRetired.length > 0) {
+    result.retiredKeyrings = mergedRetired;
+  } else {
+    delete result.retiredKeyrings;
+  }
 
   if (result.passphraseConfigured) {
     delete result.pendingSealKey;
@@ -642,14 +709,15 @@ export function mergeTasks(
     }
   }
 
-  // Merge subtask completion progress: if local task is newer but older incoming had completed subtasks,
-  // ensure those completed subtasks are not lost (handles Test 13: lower-progress device with newer updatedAt).
+  // Merge subtask completion progress bidirectionally across devices so checking off a subtask on one device
+  // is never erased by a concurrent title/note/dueDate edit on another device.
   let subtasks = base.subtasks || [];
-  if (!effectiveIncomingNewer && Array.isArray(existing.subtasks) && Array.isArray(incoming.subtasks)) {
-    const incomingMap = new Map(incoming.subtasks.map((s) => [s.id, s]));
+  const otherSubtasks = effectiveIncomingNewer ? existing.subtasks : incoming.subtasks;
+  if (Array.isArray(subtasks) && Array.isArray(otherSubtasks) && otherSubtasks.length > 0) {
+    const otherMap = new Map(otherSubtasks.map((s) => [s.id, s]));
     subtasks = subtasks.map((s) => {
-      const inc = incomingMap.get(s.id);
-      if (inc && inc.completed && !s.completed) {
+      const other = otherMap.get(s.id);
+      if (other && other.completed && !s.completed) {
         return { ...s, completed: true };
       }
       return s;
@@ -1063,7 +1131,7 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
           }
 
           for (const raw of tables.tasks) {
-            if (!raw || !raw.id || !raw.completed) continue;
+            if (!raw || !raw.id || raw.isDeleted || !raw.completed) continue;
             const existingTask = existingTasksMap.get(raw.id);
             const isUncompletedLocally = Boolean(
               existingTask?.uncompletedAt &&
@@ -1093,24 +1161,52 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
           }
         }
 
-        // 2. Habit check-ins delta
+        // 2. Habit check-ins delta (excluding soft-deleted habits and soft-deleted habitEvents tombstones)
         if (Array.isArray(tables.habits) && tables.habits.length > 0) {
           const habitIds = tables.habits.filter((h: any) => h && h.id).map((h: any) => h.id);
-          const existingHabits = await db.habits.bulkGet(habitIds);
+          const [existingHabits, localHabitEvents] = await Promise.all([
+            db.habits.bulkGet(habitIds),
+            db.habitEvents.where('habitId').anyOf(habitIds).toArray(),
+          ]);
           const existingHabitsMap = new Map<string, Habit>();
           for (const h of existingHabits) {
             if (h && h.id) existingHabitsMap.set(h.id, h);
           }
 
+          // Track latest habitEvent state per (habitId, date) across local DB + incoming payload
+          const eventStateMap = new Map<string, { isDeleted: boolean; updatedAtMs: number }>();
+          for (const ev of localHabitEvents) {
+            if (!ev || !ev.habitId || !ev.date) continue;
+            eventStateMap.set(`${ev.habitId}_${ev.date}`, {
+              isDeleted: Boolean(ev.isDeleted),
+              updatedAtMs: new Date(ev.updatedAt || 0).getTime(),
+            });
+          }
+          if (Array.isArray(tables.habitEvents)) {
+            for (const rawEv of tables.habitEvents) {
+              if (!rawEv || !rawEv.habitId || !rawEv.date) continue;
+              const key = `${rawEv.habitId}_${rawEv.date}`;
+              const incomingMs = new Date(rawEv.updatedAt || 0).getTime();
+              const prev = eventStateMap.get(key);
+              if (!prev || incomingMs >= prev.updatedAtMs) {
+                eventStateMap.set(key, {
+                  isDeleted: Boolean(rawEv.isDeleted),
+                  updatedAtMs: incomingMs,
+                });
+              }
+            }
+          }
+
           for (const raw of tables.habits) {
-            if (!raw || !raw.id || !Array.isArray(raw.completedDates)) continue;
+            if (!raw || !raw.id || raw.isDeleted || !Array.isArray(raw.completedDates)) continue;
             const existingHabit = existingHabitsMap.get(raw.id);
             const existingDatesSet = new Set(existingHabit?.completedDates || []);
             let newCheckins = 0;
             for (const d of raw.completedDates) {
-              if (typeof d === 'string' && !existingDatesSet.has(d)) {
-                newCheckins++;
-              }
+              if (typeof d !== 'string' || existingDatesSet.has(d)) continue;
+              const evState = eventStateMap.get(`${raw.id}_${d}`);
+              if (evState?.isDeleted) continue;
+              newCheckins++;
             }
             if (newCheckins > 0) {
               const habitXp = newCheckins * 15;
@@ -1134,7 +1230,7 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
           }
 
           for (const raw of tables.libraryItems) {
-            if (!raw || !raw.id || !raw.xpAwarded) continue;
+            if (!raw || !raw.id || raw.isDeleted || !raw.xpAwarded) continue;
             const existingItem = existingItemsMap.get(raw.id);
             if (!existingItem || !existingItem.xpAwarded) {
               const libXp = raw.xpEarned || (raw.type === 'book' ? 100 : 50);
@@ -1158,7 +1254,7 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
           }
 
           for (const raw of tables.defusionEntries) {
-            if (!raw || !raw.id || raw.isDeleted) continue;
+            if (!raw || !raw.id || raw.isDeleted || !raw.xpAwarded) continue;
             const existingEntry = existingEntriesMap.get(raw.id);
             if (!existingEntry || !existingEntry.xpAwarded) {
               const defXp = typeof raw.xpEarned === 'number' && !isNaN(raw.xpEarned) ? raw.xpEarned : 10;

@@ -50,6 +50,8 @@ import {
   reconnectBackupDirectory,
   maybeBackupAndSync,
   isFileSystemAccessSupported,
+  markLocalSyncDirty,
+  notifyCrossTabSync,
   BackupStatus,
   BackupAndSyncResult,
 } from '../lib/backupService';
@@ -2768,6 +2770,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
               await db.defusionVault.clear();
               await db.settings.delete('deviceSyncMtimes');
               await db.settings.delete('lastSyncAt');
+              await db.settings.delete('lastExportedTablesHash');
 
               await db.achievements.bulkPut(INITIAL_ACHIEVEMENTS);
               await db.userProfile.put(INITIAL_USER);
@@ -2850,6 +2853,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             await db.defusionVault.clear();
             await db.settings.delete('deviceSyncMtimes');
             await db.settings.delete('lastSyncAt');
+            await db.settings.delete('lastExportedTablesHash');
 
             if (INITIAL_PROJECTS.length > 0) await db.projects.bulkPut(INITIAL_PROJECTS);
             if (INITIAL_SKILLS.length > 0) await db.skills.bulkPut(INITIAL_SKILLS);
@@ -2894,6 +2898,8 @@ useEkirumStore.subscribe((state, prevState) => {
     state.defusionEntries !== prevState.defusionEntries ||
     state.defusionVault !== prevState.defusionVault
   ) {
+    markLocalSyncDirty();
+    notifyCrossTabSync('local-mutation');
     scheduleBackgroundSync();
   }
 });

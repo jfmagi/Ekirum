@@ -23,6 +23,7 @@ import { HelpModal } from './components/modals/HelpModal';
 import { OnboardingModal } from './components/modals/OnboardingModal';
 import { ExportCharacterPdfModal } from './components/modals/ExportCharacterPdfModal';
 import { SyncBanner } from './components/common/SyncBanner';
+import { subscribeCrossTabSync } from './lib/backupService';
 import { X, AlertTriangle } from 'lucide-react';
 
 import { useShallow } from 'zustand/react/shallow';
@@ -40,6 +41,7 @@ export const App: React.FC = () => {
     setHelpModalOpen,
     setCurrentView,
     initStorage,
+    syncWithDatabase,
     triggerBackupAndSync,
     refreshBackupStatus,
     reconnectBackupFolder,
@@ -69,6 +71,7 @@ export const App: React.FC = () => {
       setHelpModalOpen: s.setHelpModalOpen,
       setCurrentView: s.setCurrentView,
       initStorage: s.initStorage,
+      syncWithDatabase: s.syncWithDatabase,
       triggerBackupAndSync: s.triggerBackupAndSync,
       refreshBackupStatus: s.refreshBackupStatus,
       reconnectBackupFolder: s.reconnectBackupFolder,
@@ -92,9 +95,11 @@ export const App: React.FC = () => {
   useEffect(() => {
     initStorage();
 
-    const handleSync = () => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let crossTabTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const runSyncPass = () => {
       triggerBackupAndSync(false);
-      refreshBackupStatus();
       if ('serviceWorker' in navigator && (document.visibilityState === 'visible' || !document.hidden)) {
         navigator.serviceWorker.getRegistration().then((reg) => {
           reg?.update().catch(() => {});
@@ -102,11 +107,35 @@ export const App: React.FC = () => {
       }
     };
 
-    document.addEventListener('visibilitychange', handleSync);
-    window.addEventListener('focus', handleSync);
-    window.addEventListener('blur', handleSync);
-    window.addEventListener('pageshow', handleSync);
-    window.addEventListener('pagehide', handleSync);
+    const handleDebouncedSync = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        runSyncPass();
+      }, 400);
+    };
+
+    const handlePageHide = () => {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      triggerBackupAndSync(false);
+    };
+
+    document.addEventListener('visibilitychange', handleDebouncedSync);
+    window.addEventListener('focus', handleDebouncedSync);
+    window.addEventListener('pageshow', handleDebouncedSync);
+    window.addEventListener('pagehide', handlePageHide);
+
+    const unsubscribeCrossTab = subscribeCrossTabSync(() => {
+      if (crossTabTimer) clearTimeout(crossTabTimer);
+      crossTabTimer = setTimeout(() => {
+        crossTabTimer = null;
+        void syncWithDatabase();
+        void refreshBackupStatus();
+      }, 250);
+    });
 
     // Periodic check every 15s to pick up changes from other devices while app is open
     const periodicInterval = setInterval(() => {
@@ -116,14 +145,16 @@ export const App: React.FC = () => {
     }, 15000);
 
     return () => {
-      document.removeEventListener('visibilitychange', handleSync);
-      window.removeEventListener('focus', handleSync);
-      window.removeEventListener('blur', handleSync);
-      window.removeEventListener('pageshow', handleSync);
-      window.removeEventListener('pagehide', handleSync);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (crossTabTimer) clearTimeout(crossTabTimer);
+      document.removeEventListener('visibilitychange', handleDebouncedSync);
+      window.removeEventListener('focus', handleDebouncedSync);
+      window.removeEventListener('pageshow', handleDebouncedSync);
+      window.removeEventListener('pagehide', handlePageHide);
+      unsubscribeCrossTab();
       clearInterval(periodicInterval);
     };
-  }, [initStorage, triggerBackupAndSync, refreshBackupStatus]);
+  }, [initStorage, syncWithDatabase, triggerBackupAndSync, refreshBackupStatus]);
 
   // Automatically request directory handle permission on the user's first tap/touch/key press
   // when a sync folder is configured in IndexedDB but browser session permission is 'prompt'

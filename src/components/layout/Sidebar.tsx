@@ -33,6 +33,8 @@ export const Sidebar: React.FC = () => {
     setNewProjectModalOpen,
     setHelpModalOpen,
     setBackupModalOpen,
+    backupStatus,
+    isSyncing,
     mobileSidebarOpen,
     setMobileSidebarOpen,
   } = useEkirumStore(
@@ -48,6 +50,8 @@ export const Sidebar: React.FC = () => {
       setNewProjectModalOpen: s.setNewProjectModalOpen,
       setHelpModalOpen: s.setHelpModalOpen,
       setBackupModalOpen: s.setBackupModalOpen,
+      backupStatus: s.backupStatus,
+      isSyncing: s.isSyncing,
       mobileSidebarOpen: s.mobileSidebarOpen,
       setMobileSidebarOpen: s.setMobileSidebarOpen,
     }))
@@ -343,11 +347,32 @@ export const Sidebar: React.FC = () => {
               setMobileSidebarOpen(false);
             }}
             className="flex-1 min-h-[44px] sm:min-h-[36px] flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-stone-600 hover:text-charcoal hover:bg-stone-200/60 rounded-mac transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:outline-none active:scale-95"
-            title="Data Safety & Backup"
+            title={
+              isSyncing
+                ? 'Data Safety & Backup • Syncing…'
+                : backupStatus?.permission === 'prompt' ||
+                    backupStatus?.permission === 'denied' ||
+                    backupStatus?.statusWarning ||
+                    backupStatus?.isOverdue
+                  ? `Data Safety & Backup • ${backupStatus?.statusWarning || 'Attention needed'}`
+                  : backupStatus?.permission === 'granted'
+                    ? `Data Safety & Backup • Connected (${backupStatus.folderName || 'sync folder'})`
+                    : 'Data Safety & Backup'
+            }
             aria-label="Open data safety and backup settings"
           >
             <HardDrive size={15} className="text-stone-500 flex-shrink-0" />
             <span className="truncate">Data & Backup</span>
+            {isSyncing ? (
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" aria-hidden="true" />
+            ) : backupStatus?.permission === 'prompt' ||
+              backupStatus?.permission === 'denied' ||
+              backupStatus?.statusWarning ||
+              backupStatus?.isOverdue ? (
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" aria-hidden="true" />
+            ) : backupStatus?.permission === 'granted' ? (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" aria-hidden="true" />
+            ) : null}
           </button>
         </div>
       </aside>

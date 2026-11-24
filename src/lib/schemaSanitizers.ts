@@ -10,6 +10,7 @@ import {
   GratitudeEntry,
   DefusionEntry,
   DefusionVaultConfig,
+  RetiredVaultKeyring,
 } from '../types';
 import { formatLocalDate } from './dateParser';
 import { MAX_LENGTHS } from './validation';
@@ -289,6 +290,7 @@ export function sanitizeGratitudeEntry(raw: any): GratitudeEntry | null {
     date: raw.date,
     itemCount: typeof raw.itemCount === 'number' && !isNaN(raw.itemCount) && raw.itemCount > 0 ? Math.floor(raw.itemCount) : undefined,
     projectId: str(raw.projectId),
+    vaultKeyId: str(raw.vaultKeyId),
     ciphertext: str(raw.ciphertext),
     iv: str(raw.iv),
     wrappedKey: str(raw.wrappedKey),
@@ -314,6 +316,7 @@ export function sanitizeDefusionEntry(raw: any): DefusionEntry | null {
     id: String(raw.id).trim(),
     projectId: str(raw.projectId),
     burned,
+    vaultKeyId: burned ? undefined : str(raw.vaultKeyId),
     ciphertext: burned ? undefined : str(raw.ciphertext),
     iv: burned ? undefined : str(raw.iv),
     wrappedKey: burned ? undefined : str(raw.wrappedKey),
@@ -323,6 +326,25 @@ export function sanitizeDefusionEntry(raw: any): DefusionEntry | null {
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now,
     isDeleted: Boolean(raw.isDeleted),
     deletedAt: typeof raw.deletedAt === 'string' ? raw.deletedAt : undefined,
+  });
+}
+
+function sanitizeRetiredKeyring(raw: any): RetiredVaultKeyring | null {
+  if (!raw || typeof raw !== 'object' || typeof raw.publicKeyJwk !== 'string' || !raw.publicKeyJwk.trim()) {
+    return null;
+  }
+  const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const passphraseConfigured = Boolean(raw.passphraseConfigured);
+  return cleanUndefined<RetiredVaultKeyring>({
+    vaultKeyId: str(raw.vaultKeyId),
+    publicKeyJwk: raw.publicKeyJwk.trim(),
+    wrappedPrivateKey: str(raw.wrappedPrivateKey),
+    salt: str(raw.salt),
+    iv: str(raw.iv),
+    pendingSealKey: passphraseConfigured ? undefined : str(raw.pendingSealKey),
+    pendingWrappedPrivateKey: passphraseConfigured ? undefined : str(raw.pendingWrappedPrivateKey),
+    pendingIv: passphraseConfigured ? undefined : str(raw.pendingIv),
+    passphraseConfigured,
   });
 }
 
@@ -340,8 +362,14 @@ export function sanitizeDefusionVaultConfig(raw: any): DefusionVaultConfig | nul
   const now = new Date().toISOString();
   const str = (v: any) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
   const passphraseConfigured = Boolean(raw.passphraseConfigured);
+  const retiredKeyrings = Array.isArray(raw.retiredKeyrings)
+    ? raw.retiredKeyrings
+        .map(sanitizeRetiredKeyring)
+        .filter((k: RetiredVaultKeyring | null): k is RetiredVaultKeyring => k !== null)
+    : undefined;
   return cleanUndefined<DefusionVaultConfig>({
     id: String(raw.id).trim(),
+    vaultKeyId: str(raw.vaultKeyId),
     publicKeyJwk: raw.publicKeyJwk.trim(),
     wrappedPrivateKey: str(raw.wrappedPrivateKey),
     salt: str(raw.salt),
@@ -350,6 +378,7 @@ export function sanitizeDefusionVaultConfig(raw: any): DefusionVaultConfig | nul
     pendingWrappedPrivateKey: passphraseConfigured ? undefined : str(raw.pendingWrappedPrivateKey),
     pendingIv: passphraseConfigured ? undefined : str(raw.pendingIv),
     passphraseConfigured,
+    retiredKeyrings: retiredKeyrings && retiredKeyrings.length > 0 ? retiredKeyrings : undefined,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now,
     isDeleted: Boolean(raw.isDeleted),
