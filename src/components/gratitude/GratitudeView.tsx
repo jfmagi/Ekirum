@@ -680,14 +680,9 @@ export const GratitudeView: React.FC = () => {
         <section aria-label="Today's gratitude" className="space-y-4">
           <div className="bg-white border border-stone-200/90 rounded-xl shadow-xs p-4 sm:p-5 space-y-3.5">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-stone-100">
-              <div>
-                <span className="text-[11px] font-mono uppercase tracking-wider text-stone-500 font-semibold block">
-                  Today&apos;s Notice
-                </span>
-                <h3 className="font-serif text-base font-medium text-charcoal mt-0.5">
-                  {formatEntryDate(todayStr)}
-                </h3>
-              </div>
+              <h3 className="font-serif text-base font-medium text-charcoal">
+                {formatEntryDate(todayStr)}
+              </h3>
 
               {/* 3-dot daily goal progress indicator */}
               <div
