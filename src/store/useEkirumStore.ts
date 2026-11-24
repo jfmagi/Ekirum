@@ -39,6 +39,8 @@ import {
   encryptGratitudePayload,
   DEFUSION_XP,
   GRATITUDE_XP,
+  GRATITUDE_DAILY_BONUS_XP,
+  GRATITUDE_DAILY_TARGET,
 } from '../lib/defusionCrypto';
 import { formatLocalDate, isTaskOverdue } from '../lib/dateParser';
 export { formatLocalDate, isTaskOverdue };
@@ -374,6 +376,14 @@ const inFlightTaskActions = new Set<string>();
 const inFlightHabitActions = new Set<string>();
 const inFlightLibraryActions = new Set<string>();
 const inFlightGratitudeActions = new Set<string>();
+
+function sortGratitudeEntries(entries: GratitudeEntry[]): GratitudeEntry[] {
+  return [...entries].sort((a, b) => {
+    const dateCmp = b.date.localeCompare(a.date);
+    if (dateCmp !== 0) return dateCmp;
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  });
+}
 let initStoragePromise: Promise<void> | null = null;
 
 /**
@@ -704,9 +714,9 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
           ]);
 
           const activeLibrary = allLibrary.filter((i) => !i.isDeleted);
-          const activeGratitudeEntries = allGratitudeEntries
-            .filter((e) => !e.isDeleted)
-            .sort((a, b) => b.date.localeCompare(a.date));
+          const activeGratitudeEntries = sortGratitudeEntries(
+            allGratitudeEntries.filter((e) => !e.isDeleted)
+          );
           const activeDefusionEntries = allDefusionEntries
             .filter((e) => !e.isDeleted)
             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -2176,17 +2186,19 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
       },
 
       saveGratitudeEntry: async (data) => {
-        const cleanItems = data.items.map((i) => i.trim()).filter(Boolean).slice(0, 3);
+        const cleanItems = data.items.map((i) => i.trim()).filter(Boolean);
         if (cleanItems.length === 0) return { entry: null, xpEarned: 0 };
 
         const todayStr = formatLocalDate();
         const entryDate = data.date || todayStr;
-        const entryId = data.id || `grat-${entryDate}`;
+        const isEditing = Boolean(data.id);
+        const lockKey = data.id || `add-${entryDate}`;
+        const entryId = data.id || generateUuid(`grat-${entryDate}`);
 
-        if (inFlightGratitudeActions.has(entryId)) {
+        if (inFlightGratitudeActions.has(lockKey)) {
           return { entry: null, xpEarned: 0 };
         }
-        inFlightGratitudeActions.add(entryId);
+        inFlightGratitudeActions.add(lockKey);
 
         try {
           const now = new Date().toISOString();
@@ -2203,49 +2215,71 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
             note: data.note?.trim() || undefined,
           });
 
-          const existingDbEntry = await db.gratitudeEntries.get(entryId);
-          const existingActive = get().gratitudeEntries.find((e) => e.id === entryId && !e.isDeleted);
-          const existing = existingActive || existingDbEntry;
-
           const { projects, skills, user, gratitudeEntries } = get();
-          const alreadyAwarded = Boolean(existing?.xpAwarded);
-          const isEditingActive = Boolean(existing && !existing.isDeleted);
 
-          let earnedXp = 0;
-          if (!alreadyAwarded) {
-            const currentDailyEarned = user.dailyXpDate === todayStr ? (user.dailyXpEarned || 0) : 0;
-            const remainingCap = Math.max(0, DAILY_XP_CAP - currentDailyEarned);
-            earnedXp = Math.min(GRATITUDE_XP, remainingCap);
+          if (isEditing) {
+            const existingDbEntry = await db.gratitudeEntries.get(entryId);
+            const existingActive = gratitudeEntries.find((e) => e.id === entryId && !e.isDeleted);
+            const existing = existingActive || existingDbEntry;
+            if (!existing || existing.isDeleted) {
+              return { entry: null, xpEarned: 0 };
+            }
+
+            const updatedEntry: GratitudeEntry = {
+              ...existing,
+              itemCount: cleanItems.length,
+              projectId: data.projectId || undefined,
+              ...encryptedFields,
+              updatedAt: now,
+              isDeleted: false,
+            };
+
+            const updatedEntries = sortGratitudeEntries(
+              gratitudeEntries.some((e) => e.id === entryId)
+                ? gratitudeEntries.map((e) => (e.id === entryId ? updatedEntry : e))
+                : [updatedEntry, ...gratitudeEntries]
+            );
+
+            set({ gratitudeEntries: updatedEntries });
+            await db.gratitudeEntries.put(updatedEntry).catch(saveCatch('updating gratitude entry'));
+            sound.playClick();
+            return { entry: updatedEntry, xpEarned: 0 };
           }
+
+          // New entry: 10 XP per item (capped by DAILY_XP_CAP) + one-time +5 daily bonus at 3 items
+          const sameDateDbEntries = await db.gratitudeEntries.where('date').equals(entryDate).toArray();
+          const activeCountBefore = sameDateDbEntries
+            .filter((e) => !e.isDeleted)
+            .reduce((sum, e) => sum + (e.itemCount ?? 1), 0);
+          const bonusAlreadyAwarded = sameDateDbEntries.some((e) => Boolean(e.dailyBonusAwarded));
+
+          const activeCountAfter = activeCountBefore + cleanItems.length;
+          const qualifiesForDailyBonus = activeCountAfter >= GRATITUDE_DAILY_TARGET && !bonusAlreadyAwarded;
+
+          const currentDailyEarned = user.dailyXpDate === todayStr ? (user.dailyXpEarned || 0) : 0;
+          const remainingCap = Math.max(0, DAILY_XP_CAP - currentDailyEarned);
+
+          const earnedItemXp = Math.min(cleanItems.length * GRATITUDE_XP, remainingCap);
+          const earnedBonusXp = qualifiesForDailyBonus
+            ? Math.min(GRATITUDE_DAILY_BONUS_XP, Math.max(0, remainingCap - earnedItemXp))
+            : 0;
+          const earnedXp = earnedItemXp + earnedBonusXp;
 
           const savedEntry: GratitudeEntry = {
             id: entryId,
-            date: existing?.date || entryDate,
+            date: entryDate,
+            itemCount: cleanItems.length,
             projectId: data.projectId || undefined,
             ...encryptedFields,
             xpAwarded: true,
-            xpEarned: alreadyAwarded ? existing?.xpEarned : earnedXp,
-            createdAt: existing?.createdAt || now,
+            xpEarned: earnedItemXp,
+            ...(qualifiesForDailyBonus ? { dailyBonusAwarded: true, dailyBonusXp: earnedBonusXp } : {}),
+            createdAt: now,
             updatedAt: now,
             isDeleted: false,
-            deletedAt: undefined,
           };
 
-          const existsInList = gratitudeEntries.some((e) => e.id === entryId);
-          const updatedEntries = (
-            existsInList
-              ? gratitudeEntries.map((e) => (e.id === entryId ? savedEntry : e))
-              : [savedEntry, ...gratitudeEntries]
-          ).sort((a, b) => b.date.localeCompare(a.date));
-
-          if (isEditingActive || alreadyAwarded) {
-            set({ gratitudeEntries: updatedEntries });
-            await db.gratitudeEntries.put(savedEntry).catch(saveCatch('updating gratitude entry'));
-            sound.playClick();
-            return { entry: savedEntry, xpEarned: 0 };
-          }
-
-          const currentDailyEarned = user.dailyXpDate === todayStr ? (user.dailyXpEarned || 0) : 0;
+          const updatedEntries = sortGratitudeEntries([savedEntry, ...gratitudeEntries]);
           const newDailyEarned = currentDailyEarned + earnedXp;
 
           let updatedSkills = [...skills];
@@ -2393,7 +2427,7 @@ export const useEkirumStore = create<EkirumStore>()((set, get) => {
 
           return { entry: savedEntry, xpEarned: earnedXp };
         } finally {
-          inFlightGratitudeActions.delete(entryId);
+          inFlightGratitudeActions.delete(lockKey);
         }
       },
 

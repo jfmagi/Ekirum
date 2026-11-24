@@ -72,7 +72,7 @@ const SpacesPreview: React.FC = () => {
   const rows = [
     { icon: <Repeat size={14} />, title: 'Habits', text: 'Recurring rituals with streaks.' },
     { icon: <BookOpen size={14} />, title: 'Library', text: 'Books and films, from queue to finished.' },
-    { icon: <Heart size={14} />, title: 'Gratitude journal', text: 'Three daily gratitudes, sealed with your vault.' },
+    { icon: <Heart size={14} />, title: 'Gratitude journal', text: 'Write one thing at a time; three a day builds your streak.' },
     { icon: <Wind size={14} />, title: 'Defusion chamber', text: 'Write a thought down, then seal it or burn it.' },
   ];
   return (

@@ -3,6 +3,8 @@ import { MAX_LENGTHS, clampString } from './validation';
 
 export const DEFUSION_XP = 10;
 export const GRATITUDE_XP = 10;
+export const GRATITUDE_DAILY_BONUS_XP = 5;
+export const GRATITUDE_DAILY_TARGET = 3;
 
 export const DEFUSION_PREFIXES = [
   "I notice I'm having the thought that…",
@@ -411,7 +413,7 @@ export async function decryptDefusionEntry(
 }
 
 /**
- * Encrypts a gratitude journal payload (up to 3 items + optional reflection note)
+ * Encrypts a gratitude journal payload (one or more items + optional legacy note)
  * using the shared vault RSA-OAEP public key.
  */
 export async function encryptGratitudePayload(
@@ -420,8 +422,7 @@ export async function encryptGratitudePayload(
 ): Promise<{ ciphertext: string; iv: string; wrappedKey: string }> {
   const cleanItems = payload.items
     .map((item) => clampString(item.trim(), MAX_LENGTHS.GRATITUDE_ITEM))
-    .filter(Boolean)
-    .slice(0, 3);
+    .filter(Boolean);
   const cleanNote = payload.note?.trim()
     ? clampString(payload.note.trim(), MAX_LENGTHS.GRATITUDE_NOTE)
     : undefined;
@@ -444,9 +445,7 @@ export async function decryptGratitudeEntry(
   if (!parsed || !Array.isArray(parsed.items)) {
     return null;
   }
-  const items = parsed.items
-    .filter((i: any) => typeof i === 'string' && i.trim().length > 0)
-    .slice(0, 3);
+  const items = parsed.items.filter((i: any) => typeof i === 'string' && i.trim().length > 0);
   return {
     items,
     ...(typeof parsed.note === 'string' && parsed.note.trim() ? { note: parsed.note } : {}),

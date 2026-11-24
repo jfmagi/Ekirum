@@ -319,16 +319,24 @@ export function evaluateAchievements(
       projectCompletionsMap.set(entry.projectId, (projectCompletionsMap.get(entry.projectId) || 0) + 1);
     }
   }
-  const uniqueGratitudeDates = new Set<string>();
+  const gratitudeCountByDate = new Map<string, number>();
   for (const entry of gratitudeEntries) {
     if (!entry.isDeleted) {
-      if (entry.date) uniqueGratitudeDates.add(entry.date);
+      if (entry.date) {
+        gratitudeCountByDate.set(
+          entry.date,
+          (gratitudeCountByDate.get(entry.date) || 0) + (entry.itemCount ?? 1)
+        );
+      }
       if (entry.projectId) {
         projectCompletionsMap.set(entry.projectId, (projectCompletionsMap.get(entry.projectId) || 0) + 1);
       }
     }
   }
-  const gratitudeDaysCount = uniqueGratitudeDates.size;
+  let gratitudeDaysCount = 0;
+  for (const count of gratitudeCountByDate.values()) {
+    if (count >= 3) gratitudeDaysCount++;
+  }
 
   // Base list of achievements to evaluate, initialized with INITIAL_ACHIEVEMENTS
   const baseMap = new Map<string, Achievement>();

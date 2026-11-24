@@ -324,6 +324,8 @@ export function mergeGratitudeEntries(
   const incomingTime = new Date(incoming.updatedAt || 0).getTime();
   const xpAwarded = Boolean(existing.xpAwarded || incoming.xpAwarded);
   const xpEarned = Math.max(existing.xpEarned || 0, incoming.xpEarned || 0);
+  const dailyBonusAwarded = Boolean(existing.dailyBonusAwarded || incoming.dailyBonusAwarded);
+  const dailyBonusXp = Math.max(existing.dailyBonusXp || 0, incoming.dailyBonusXp || 0);
 
   let base: GratitudeEntry;
   if ((existing.isDeleted || incoming.isDeleted) && incomingTime === existingTime) {
@@ -336,6 +338,7 @@ export function mergeGratitudeEntries(
     ...base,
     xpAwarded,
     ...(xpAwarded ? { xpEarned } : {}),
+    ...(dailyBonusAwarded ? { dailyBonusAwarded: true, dailyBonusXp } : {}),
     updatedAt: isIncomingNewer ? incoming.updatedAt : existing.updatedAt,
   };
 
@@ -1181,13 +1184,23 @@ export async function importAndMerge(payload: any): Promise<MergeResult> {
           for (const raw of tables.gratitudeEntries) {
             if (!raw || !raw.id || raw.isDeleted || !raw.xpAwarded) continue;
             const existingEntry = existingEntriesMap.get(raw.id);
+            let gratXp = 0;
             if (!existingEntry || !existingEntry.xpAwarded) {
-              const gratXp = typeof raw.xpEarned === 'number' && !isNaN(raw.xpEarned) ? raw.xpEarned : 10;
+              gratXp += typeof raw.xpEarned === 'number' && !isNaN(raw.xpEarned) ? raw.xpEarned : 10;
+              if (raw.dailyBonusAwarded) {
+                gratXp += typeof raw.dailyBonusXp === 'number' && !isNaN(raw.dailyBonusXp) ? raw.dailyBonusXp : 5;
+              }
+            } else if (raw.dailyBonusAwarded && !existingEntry.dailyBonusAwarded) {
+              gratXp += typeof raw.dailyBonusXp === 'number' && !isNaN(raw.dailyBonusXp) ? raw.dailyBonusXp : 5;
+            }
+            if (gratXp > 0) {
               incomingNewXpDelta += gratXp;
               const skillId = raw.projectId ? projectSkillMap.get(raw.projectId) : undefined;
               if (skillId) {
                 incomingSkillXpDelta[skillId] = (incomingSkillXpDelta[skillId] || 0) + gratXp;
-                incomingSkillCompletionsDelta[skillId] = (incomingSkillCompletionsDelta[skillId] || 0) + 1;
+                if (!existingEntry || !existingEntry.xpAwarded) {
+                  incomingSkillCompletionsDelta[skillId] = (incomingSkillCompletionsDelta[skillId] || 0) + 1;
+                }
               }
             }
           }

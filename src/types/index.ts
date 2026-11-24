@@ -138,13 +138,16 @@ export interface DefusionEntry extends BaseEntity {
 }
 
 export interface GratitudeEntry extends BaseEntity {
-  date: string; // YYYY-MM-DD (one card per day)
-  projectId?: string; // Optional link to Project & Skill (receives 10 XP once per day)
+  date: string; // YYYY-MM-DD
+  itemCount?: number; // Number of gratitude items stored inside ciphertext (defaults to 1)
+  projectId?: string; // Optional link to Project & Skill
   ciphertext?: string; // Base64 AES-256-GCM encrypted JSON payload { items: string[]; note?: string }
   iv?: string; // Base64 12-byte IV for AES-256-GCM
   wrappedKey?: string; // Base64 RSA-OAEP 2048-bit wrapped AES-256 key
-  xpAwarded?: boolean; // 10 XP granted once per daily entry
-  xpEarned?: number; // Internal XP value for sync delta
+  xpAwarded?: boolean; // 10 XP granted once per item
+  xpEarned?: number; // Internal item XP value for sync delta
+  dailyBonusAwarded?: boolean; // +5 bonus XP granted once per day upon reaching 3 items
+  dailyBonusXp?: number; // Internal bonus XP value for sync delta
 }
 
 export interface DefusionVaultConfig extends BaseEntity {

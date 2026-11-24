@@ -336,7 +336,7 @@ export const GRATITUDE_ACHIEVEMENTS: Achievement[] = [
   {
     id: 'ach-gratitude-1',
     title: 'First Light',
-    description: 'Seal your first Gratitude journal entry.',
+    description: 'List 3 gratitudes in a day for the first time.',
     icon: 'Heart',
     unlockedAt: undefined,
     progress: 0,
@@ -349,7 +349,7 @@ export const GRATITUDE_ACHIEVEMENTS: Achievement[] = [
   {
     id: 'ach-gratitude-7',
     title: 'Week of Notice',
-    description: 'Seal 7 Gratitude journal days.',
+    description: 'Complete 7 days with 3 or more gratitude entries.',
     icon: 'Sun',
     unlockedAt: undefined,
     progress: 0,
@@ -362,7 +362,7 @@ export const GRATITUDE_ACHIEVEMENTS: Achievement[] = [
   {
     id: 'ach-gratitude-30',
     title: 'Season of Thanks',
-    description: 'Seal 30 Gratitude journal days.',
+    description: 'Complete 30 days with 3 or more gratitude entries.',
     icon: 'Sparkles',
     unlockedAt: undefined,
     progress: 0,
@@ -375,7 +375,7 @@ export const GRATITUDE_ACHIEVEMENTS: Achievement[] = [
   {
     id: 'ach-gratitude-100',
     title: 'Steadfast Witness',
-    description: 'Seal 100 Gratitude journal days.',
+    description: 'Complete 100 days with 3 or more gratitude entries.',
     icon: 'Crown',
     unlockedAt: undefined,
     progress: 0,
